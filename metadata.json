@@ -1,0 +1,6 @@
+{
+  "name": "Phantom",
+  "description": "E2EE Messaging App MVP featuring Social Foundation, X3DH, Double Ratchet, AEAD & Key Verification",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
