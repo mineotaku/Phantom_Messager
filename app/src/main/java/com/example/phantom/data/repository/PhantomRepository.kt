@@ -282,7 +282,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
      * Processes incoming friend request WebSocket events in real-time.
      * Creates PENDING_RECEIVED friendship entries in local DB.
      */
-    suspend fun processFriendRequestEvents() = withContext(Dispatchers.IO) {
+    suspend fun processFriendRequestEvents(): Unit = withContext(Dispatchers.IO) {
         WebSocketManager.friendRequestFlow.collect { event ->
             val currentUser = getCurrentUser() ?: return@collect
             val existing = db.friendshipDao().getFriendship(currentUser.userId, event.fromUserId)
@@ -305,7 +305,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
      * Processes incoming friend acceptance WebSocket events in real-time.
      * Updates PENDING_SENT entries to ACCEPTED.
      */
-    suspend fun processFriendAcceptedEvents() = withContext(Dispatchers.IO) {
+    suspend fun processFriendAcceptedEvents(): Unit = withContext(Dispatchers.IO) {
         WebSocketManager.friendAcceptedFlow.collect { event ->
             val currentUser = getCurrentUser() ?: return@collect
             val existing = db.friendshipDao().getFriendship(currentUser.userId, event.acceptedByUserId)
