@@ -10,19 +10,45 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import java.net.URI
 
+data class FriendRequestEvent(
+    val fromUserId: String,
+    val fromUsername: String,
+    val fromDisplayName: String,
+    val fromAvatarStyle: String,
+    val timestamp: Long
+)
+
+data class FriendRequestAcceptedEvent(
+    val acceptedByUserId: String,
+    val acceptedByUsername: String,
+    val acceptedByDisplayName: String,
+    val acceptedByAvatarStyle: String
+)
+
 object WebSocketManager {
     private var socket: Socket? = null
     private val _messageFlow = MutableSharedFlow<EncryptedMessagePacket>(extraBufferCapacity = 50)
     val messageFlow: SharedFlow<EncryptedMessagePacket> = _messageFlow
 
+    private val _friendRequestFlow = MutableSharedFlow<FriendRequestEvent>(extraBufferCapacity = 20)
+    val friendRequestFlow: SharedFlow<FriendRequestEvent> = _friendRequestFlow
+
+    private val _friendAcceptedFlow = MutableSharedFlow<FriendRequestAcceptedEvent>(extraBufferCapacity = 20)
+    val friendAcceptedFlow: SharedFlow<FriendRequestAcceptedEvent> = _friendAcceptedFlow
+
     private val moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
     private val packetAdapter = moshi.adapter(EncryptedMessagePacket::class.java)
+    private val friendRequestAdapter = moshi.adapter(FriendRequestEvent::class.java)
+    private val friendAcceptedAdapter = moshi.adapter(FriendRequestAcceptedEvent::class.java)
 
-    // Replace with Render backend URL once deployed, using localhost (10.0.2.2 for emulator) for now
-    private const val SERVER_URL = "http://10.0.2.2:3000"
+    private const val SERVER_URL = "https://phantom-relay-jvm2.onrender.com"
 
     fun connect(userId: String) {
-        if (socket?.connected() == true) return
+        // Disconnect existing socket before reconnecting with new userId
+        if (socket != null) {
+            socket?.disconnect()
+            socket = null
+        }
 
         try {
             val options = IO.Options.builder()
@@ -46,6 +72,36 @@ object WebSocketManager {
                         }
                     } catch (e: Exception) {
                         Log.e("WebSocketManager", "Failed to parse incoming packet", e)
+                    }
+                }
+            }
+
+            socket?.on("friend_request_received") { args ->
+                if (args.isNotEmpty()) {
+                    try {
+                        val jsonStr = args[0].toString()
+                        val event = friendRequestAdapter.fromJson(jsonStr)
+                        if (event != null) {
+                            Log.d("WebSocketManager", "Friend request from: ${event.fromUserId}")
+                            _friendRequestFlow.tryEmit(event)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("WebSocketManager", "Failed to parse friend request event", e)
+                    }
+                }
+            }
+
+            socket?.on("friend_request_accepted") { args ->
+                if (args.isNotEmpty()) {
+                    try {
+                        val jsonStr = args[0].toString()
+                        val event = friendAcceptedAdapter.fromJson(jsonStr)
+                        if (event != null) {
+                            Log.d("WebSocketManager", "Friend request accepted by: ${event.acceptedByUserId}")
+                            _friendAcceptedFlow.tryEmit(event)
+                        }
+                    } catch (e: Exception) {
+                        Log.e("WebSocketManager", "Failed to parse friend accepted event", e)
                     }
                 }
             }
@@ -76,3 +132,4 @@ object WebSocketManager {
         socket = null
     }
 }
+

@@ -1,5 +1,6 @@
 package com.example.phantom.data.repository
 
+import android.util.Log
 import com.example.phantom.crypto.CryptoUtils
 import com.example.phantom.crypto.DoubleRatchet
 import com.example.phantom.crypto.X3DH
@@ -9,6 +10,8 @@ import com.example.phantom.data.db.PhantomDatabase
 import com.example.phantom.data.db.PrekeyEntity
 import com.example.phantom.data.db.SessionEntity
 import com.example.phantom.data.db.UserEntity
+import com.example.phantom.data.network.FriendRequestAcceptPayload
+import com.example.phantom.data.network.FriendRequestPayload
 import com.example.phantom.data.network.RetrofitClient
 import com.example.phantom.data.network.WebSocketManager
 import com.example.phantom.data.network.ProfilePayload
@@ -16,6 +19,7 @@ import com.example.phantom.data.network.RegisterPayload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.withContext
 import java.util.UUID
@@ -95,31 +99,103 @@ class PhantomRepository(private val db: PhantomDatabase) {
         db.userDao().insertUser(userEntity)
         db.prekeyDao().insertPrekeys(opkEntities)
 
-        val profilePayload = ProfilePayload(
-            userId = userId,
-            username = cleanUsername,
-            displayName = displayName,
-            avatarStyle = avatarStyle,
-            bio = bio,
-            identityPublicKeyHex = identityPubHex
-        )
-
-        val registerPayload = RegisterPayload(
-            profile = profilePayload,
-            signedPrekeyPublicHex = signedPrekeyPubHex,
-            signedPrekeySignatureHex = sigHex,
-            oneTimePrekeysHex = opkPublicHexes
-        )
-
-        try {
-            RetrofitClient.api.registerUser(registerPayload)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        // Register on server with retry
+        registerOnServer(userEntity, opkPublicHexes)
 
         WebSocketManager.connect(userId)
 
         userEntity
+    }
+
+    /**
+     * Registers or re-registers the user profile on the relay server.
+     */
+    private suspend fun registerOnServer(user: UserEntity, opkPublicHexes: List<String>? = null) {
+        val profilePayload = ProfilePayload(
+            userId = user.userId,
+            username = user.username,
+            displayName = user.displayName,
+            avatarStyle = user.avatarStyle,
+            bio = user.bio,
+            identityPublicKeyHex = user.identityPublicKeyHex
+        )
+
+        // Gather OPK hex values: use provided list or regenerate from stored prekeys
+        val opkHexes = opkPublicHexes ?: run {
+            // Fallback: send empty list for re-registration (server will keep existing if any)
+            emptyList()
+        }
+
+        val registerPayload = RegisterPayload(
+            profile = profilePayload,
+            signedPrekeyPublicHex = user.signedPrekeyPublicHex,
+            signedPrekeySignatureHex = user.signedPrekeySignatureHex,
+            oneTimePrekeysHex = opkHexes
+        )
+
+        // Retry up to 3 times
+        var lastError: Exception? = null
+        for (attempt in 1..3) {
+            try {
+                RetrofitClient.api.registerUser(registerPayload)
+                Log.d("PhantomRepository", "Registered on server (attempt $attempt)")
+                return
+            } catch (e: Exception) {
+                lastError = e
+                Log.e("PhantomRepository", "Registration attempt $attempt failed", e)
+                if (attempt < 3) {
+                    kotlinx.coroutines.delay(1000L * attempt) // Backoff
+                }
+            }
+        }
+        Log.e("PhantomRepository", "All registration attempts failed", lastError)
+    }
+
+    /**
+     * Ensures the current user is registered on the server.
+     * Call on app startup to handle server cold restarts that wipe in-memory data.
+     */
+    suspend fun ensureRegisteredOnServer() = withContext(Dispatchers.IO) {
+        val currentUser = getCurrentUser() ?: return@withContext
+        try {
+            // Check if server knows about us
+            RetrofitClient.api.getProfile(currentUser.userId)
+            Log.d("PhantomRepository", "User already registered on server")
+        } catch (e: Exception) {
+            // Server doesn't know us — re-register
+            Log.w("PhantomRepository", "User not found on server, re-registering...")
+            registerOnServer(currentUser)
+        }
+        // Ensure WebSocket is connected
+        WebSocketManager.connect(currentUser.userId)
+    }
+
+    /**
+     * Fetches and processes any pending friend requests from the server.
+     * Called on app startup to sync requests that arrived while offline.
+     */
+    suspend fun fetchPendingFriendRequests() = withContext(Dispatchers.IO) {
+        val currentUser = getCurrentUser() ?: return@withContext
+        try {
+            val pendingRequests = RetrofitClient.api.getFriendRequests(currentUser.userId)
+            for (request in pendingRequests) {
+                val existing = db.friendshipDao().getFriendship(currentUser.userId, request.fromUserId)
+                if (existing == null) {
+                    val friendEntity = FriendshipEntity(
+                        localUserId = currentUser.userId,
+                        friendUserId = request.fromUserId,
+                        friendUsername = request.fromUsername,
+                        friendDisplayName = request.fromDisplayName,
+                        friendAvatarStyle = request.fromAvatarStyle,
+                        status = "PENDING_RECEIVED"
+                    )
+                    db.friendshipDao().insertFriendship(friendEntity)
+                    Log.d("PhantomRepository", "Synced pending request from ${request.fromUserId}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("PhantomRepository", "Failed to fetch pending friend requests", e)
+        }
     }
 
     suspend fun switchActiveUser(targetUserId: String) = withContext(Dispatchers.IO) {
@@ -136,10 +212,13 @@ class PhantomRepository(private val db: PhantomDatabase) {
         return db.friendshipDao().getAcceptedFriendsFlow(localUserId)
     }
 
-    suspend fun searchUsers(query: String) = withContext(Dispatchers.IO) {
-        RetrofitClient.api.searchUsers(query)
+    suspend fun searchUsers(query: String): List<ProfilePayload> = withContext(Dispatchers.IO) {
+        RetrofitClient.api.searchProfiles(query)
     }
 
+    /**
+     * Sends a friend request both locally AND to the server for relay to the recipient.
+     */
     suspend fun sendFriendRequest(friendUserId: String) = withContext(Dispatchers.IO) {
         val currentUser = getCurrentUser() ?: return@withContext
         val profile = RetrofitClient.api.getProfile(friendUserId)
@@ -153,11 +232,40 @@ class PhantomRepository(private val db: PhantomDatabase) {
             status = "PENDING_SENT"
         )
         db.friendshipDao().insertFriendship(friendEntity)
+
+        // Notify the server so the recipient gets the request
+        try {
+            RetrofitClient.api.sendFriendRequest(
+                FriendRequestPayload(
+                    fromUserId = currentUser.userId,
+                    toUserId = friendUserId
+                )
+            )
+            Log.d("PhantomRepository", "Friend request sent to server for $friendUserId")
+        } catch (e: Exception) {
+            Log.e("PhantomRepository", "Failed to send friend request to server", e)
+        }
     }
 
+    /**
+     * Accepts a friend request both locally AND notifies the server.
+     */
     suspend fun acceptFriendRequest(friendUserId: String) = withContext(Dispatchers.IO) {
         val currentUser = getCurrentUser() ?: return@withContext
         db.friendshipDao().updateStatus(currentUser.userId, friendUserId, "ACCEPTED")
+
+        // Notify the server so the sender gets updated
+        try {
+            RetrofitClient.api.acceptFriendRequest(
+                FriendRequestAcceptPayload(
+                    userId = currentUser.userId,
+                    friendUserId = friendUserId
+                )
+            )
+            Log.d("PhantomRepository", "Friend request acceptance sent to server for $friendUserId")
+        } catch (e: Exception) {
+            Log.e("PhantomRepository", "Failed to notify server of friend acceptance", e)
+        }
     }
 
     suspend fun blockUser(friendUserId: String) = withContext(Dispatchers.IO) {
@@ -171,6 +279,55 @@ class PhantomRepository(private val db: PhantomDatabase) {
     }
 
     /**
+     * Processes incoming friend request WebSocket events in real-time.
+     * Creates PENDING_RECEIVED friendship entries in local DB.
+     */
+    suspend fun processFriendRequestEvents() = withContext(Dispatchers.IO) {
+        WebSocketManager.friendRequestFlow.collect { event ->
+            val currentUser = getCurrentUser() ?: return@collect
+            val existing = db.friendshipDao().getFriendship(currentUser.userId, event.fromUserId)
+            if (existing == null) {
+                val friendEntity = FriendshipEntity(
+                    localUserId = currentUser.userId,
+                    friendUserId = event.fromUserId,
+                    friendUsername = event.fromUsername,
+                    friendDisplayName = event.fromDisplayName,
+                    friendAvatarStyle = event.fromAvatarStyle,
+                    status = "PENDING_RECEIVED"
+                )
+                db.friendshipDao().insertFriendship(friendEntity)
+                Log.d("PhantomRepository", "Received friend request from ${event.fromUserId}")
+            }
+        }
+    }
+
+    /**
+     * Processes incoming friend acceptance WebSocket events in real-time.
+     * Updates PENDING_SENT entries to ACCEPTED.
+     */
+    suspend fun processFriendAcceptedEvents() = withContext(Dispatchers.IO) {
+        WebSocketManager.friendAcceptedFlow.collect { event ->
+            val currentUser = getCurrentUser() ?: return@collect
+            val existing = db.friendshipDao().getFriendship(currentUser.userId, event.acceptedByUserId)
+            if (existing != null && existing.status == "PENDING_SENT") {
+                db.friendshipDao().updateStatus(currentUser.userId, event.acceptedByUserId, "ACCEPTED")
+                Log.d("PhantomRepository", "Friend request accepted by ${event.acceptedByUserId}")
+            } else if (existing == null) {
+                // Edge case: create an accepted friendship if we didn't have one
+                val friendEntity = FriendshipEntity(
+                    localUserId = currentUser.userId,
+                    friendUserId = event.acceptedByUserId,
+                    friendUsername = event.acceptedByUsername,
+                    friendDisplayName = event.acceptedByDisplayName,
+                    friendAvatarStyle = event.acceptedByAvatarStyle,
+                    status = "ACCEPTED"
+                )
+                db.friendshipDao().insertFriendship(friendEntity)
+            }
+        }
+    }
+
+    /**
      * Establishes or retrieves the E2EE Double Ratchet session for a contact.
      */
     suspend fun getOrCreateSession(contactUserId: String): SessionEntity = withContext(Dispatchers.IO) {
@@ -178,8 +335,14 @@ class PhantomRepository(private val db: PhantomDatabase) {
         val existingSession = db.sessionDao().getSession(currentUser.userId, contactUserId)
         if (existingSession != null) return@withContext existingSession
 
-        // Perform X3DH Handshake
-        val prekeyBundle = RetrofitClient.api.getPrekeyBundle(contactUserId)
+        val bundleResponse = RetrofitClient.api.getPrekeyBundle(contactUserId)
+        val prekeyBundle = com.example.phantom.crypto.X3DH.PrekeyBundle(
+            recipientUserId = contactUserId,
+            identityKeyHex = bundleResponse.identityPublicKeyHex,
+            signedPrekeyHex = bundleResponse.signedPrekeyPublicHex,
+            signedPrekeySignatureHex = bundleResponse.signedPrekeySignatureHex,
+            oneTimePrekeyHex = bundleResponse.oneTimePrekeyHex
+        )
 
         val myIdentityKey = Pair(
             CryptoUtils.parsePrivateKey(CryptoUtils.fromHex(currentUser.identityPrivateKeyHex)),
@@ -206,15 +369,23 @@ class PhantomRepository(private val db: PhantomDatabase) {
             sendSequenceNumber = drState.sendSequenceNumber,
             receiveSequenceNumber = drState.receiveSequenceNumber,
             previousChainLength = drState.previousChainLength,
-            sharedMasterSecretHex = x3dhResult.sharedMasterSecretHex
+            sharedMasterSecretHex = x3dhResult.sharedMasterSecretHex,
+            aliceBaseKeyHex = x3dhResult.senderEphemeralPublicKeyHex
         )
 
         db.sessionDao().saveSession(sessionEntity)
         sessionEntity
     }
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     fun getSessionFlow(contactUserId: String): Flow<SessionEntity?> {
-        return db.sessionDao().getSessionFlow("", contactUserId)
+        return currentUserFlow.flatMapLatest { user ->
+            if (user != null) {
+                db.sessionDao().getSessionFlow(user.userId, contactUserId)
+            } else {
+                flowOf(null)
+            }
+        }
     }
 
     fun getMessagesForConversation(contactUserId: String): Flow<List<MessageEntity>> {
@@ -284,7 +455,8 @@ class PhantomRepository(private val db: PhantomDatabase) {
             messageNumber = encryptedMsg.header.messageNumber,
             ciphertextHex = encryptedMsg.ciphertextHex,
             ivHex = encryptedMsg.ivHex,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            senderEphemeralKeyHex = if (session.sendSequenceNumber == 0) session.aliceBaseKeyHex else null
         )
         WebSocketManager.sendMessage(packet)
     }
@@ -292,7 +464,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
     /**
      * Polling is now replaced by real-time WebSocket observing.
      */
-    suspend fun pollAndDecryptIncomingMessages() = withContext(Dispatchers.IO) {
+    suspend fun pollAndDecryptIncomingMessages(): Unit = withContext(Dispatchers.IO) {
         // Collect messages from the shared flow
         WebSocketManager.messageFlow.collect { packet ->
             val currentUser = getCurrentUser() ?: return@collect
@@ -303,22 +475,26 @@ class PhantomRepository(private val db: PhantomDatabase) {
 
             if (session == null) {
                 // Sender initiated X3DH with me. Reconstruct matching secret!
-                val senderProfile = try { RetrofitClient.api.getProfile(senderUserId) } catch (e: Exception) { null } ?: return@collect
+                val senderProfile = try { RetrofitClient.api.getProfile(senderUserId) } catch (e: Exception) { null }
+                if (senderProfile == null) return@collect
                 val myIdentityKeyPair = Pair(
                     CryptoUtils.parsePrivateKey(CryptoUtils.fromHex(currentUser.identityPrivateKeyHex)),
                     CryptoUtils.parsePublicKey(CryptoUtils.fromHex(currentUser.identityPublicKeyHex))
                 )
                 val mySignedPrekeyPriv = CryptoUtils.parsePrivateKey(CryptoUtils.fromHex(currentUser.signedPrekeyPrivateHex))
 
+                val mySignedPrekeyPub = CryptoUtils.parsePublicKey(CryptoUtils.fromHex(currentUser.signedPrekeyPublicHex))
+                val mySignedPrekeyPair = Pair(mySignedPrekeyPriv, mySignedPrekeyPub)
+
                 val masterSecretHex = X3DH.receiveHandshake(
                     bobIdentityKeyPair = myIdentityKeyPair,
                     bobSignedPrekeyPrivate = mySignedPrekeyPriv,
                     bobOneTimePrekeyPrivate = null,
                     aliceIdentityKeyHex = senderProfile.identityPublicKeyHex,
-                    aliceEphemeralKeyHex = packet.dhEphemeralKeyHex
+                    aliceEphemeralKeyHex = packet.senderEphemeralKeyHex ?: return@collect
                 )
 
-                val drState = DoubleRatchet.initializeBobSession(masterSecretHex, myIdentityKeyPair)
+                val drState = DoubleRatchet.initializeBobSession(masterSecretHex, mySignedPrekeyPair)
                 session = SessionEntity(
                     contactUserId = senderUserId,
                     localUserId = currentUser.userId,
@@ -333,6 +509,21 @@ class PhantomRepository(private val db: PhantomDatabase) {
                     previousChainLength = drState.previousChainLength,
                     sharedMasterSecretHex = masterSecretHex
                 )
+
+                // Auto-create a contact for the sender if we don't have one
+                val existingFriendship = db.friendshipDao().getFriendship(currentUser.userId, senderUserId)
+                if (existingFriendship == null) {
+                    val friendEntity = FriendshipEntity(
+                        localUserId = currentUser.userId,
+                        friendUserId = senderUserId,
+                        friendUsername = senderProfile.username,
+                        friendDisplayName = senderProfile.displayName,
+                        friendAvatarStyle = senderProfile.avatarStyle,
+                        status = "ACCEPTED"
+                    )
+                    db.friendshipDao().insertFriendship(friendEntity)
+                    Log.d("PhantomRepository", "Auto-created contact for incoming message sender: $senderUserId")
+                }
             }
 
             val drState = DoubleRatchet.SessionState(

@@ -51,50 +51,29 @@ object CryptoUtils {
      * Uses EC (secp256r1) or X25519 depending on runtime support.
      */
     fun generateKeyPair(): KeyPair {
-        return try {
-            val kpg = KeyPairGenerator.getInstance("EC")
-            kpg.initialize(ECGenParameterSpec("secp256r1"))
-            kpg.generateKeyPair()
-        } catch (e: Exception) {
-            val kpg = KeyPairGenerator.getInstance("RSA")
-            kpg.initialize(2048)
-            kpg.generateKeyPair()
-        }
+        val kpg = KeyPairGenerator.getInstance("EC")
+        kpg.initialize(ECGenParameterSpec("secp256r1"))
+        return kpg.generateKeyPair()
     }
 
     /**
      * Performs Diffie-Hellman Key Agreement between local private key and remote public key.
      */
     fun diffieHellman(privateKey: PrivateKey, publicKey: PublicKey): ByteArray {
-        return try {
-            val ka = KeyAgreement.getInstance("ECDH")
-            ka.init(privateKey)
-            ka.doPhase(publicKey, true)
-            ka.generateSecret()
-        } catch (e: Exception) {
-            // Fallback digest if non-EC
-            val md = MessageDigest.getInstance("SHA-256")
-            md.update(privateKey.encoded)
-            md.update(publicKey.encoded)
-            md.digest()
-        }
+        val ka = KeyAgreement.getInstance("ECDH")
+        ka.init(privateKey)
+        ka.doPhase(publicKey, true)
+        return ka.generateSecret()
     }
 
     /**
      * Signs data using Ed25519/ECDSA private identity key.
      */
     fun signData(privateKey: PrivateKey, data: ByteArray): ByteArray {
-        return try {
-            val sig = Signature.getInstance("SHA256withECDSA")
-            sig.initSign(privateKey)
-            sig.update(data)
-            sig.sign()
-        } catch (e: Exception) {
-            val md = MessageDigest.getInstance("SHA-256")
-            md.update(privateKey.encoded)
-            md.update(data)
-            md.digest()
-        }
+        val sig = Signature.getInstance("SHA256withECDSA")
+        sig.initSign(privateKey)
+        sig.update(data)
+        return sig.sign()
     }
 
     /**
@@ -107,7 +86,7 @@ object CryptoUtils {
             sig.update(data)
             sig.verify(signatureBytes)
         } catch (e: Exception) {
-            true // Fallback verification
+            false
         }
     }
 

@@ -7,14 +7,14 @@ import androidx.activity.enableEdgeToEdge
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.phantom.ui.PhantomViewModel
 import com.example.phantom.ui.screens.MainScreen
-import com.example.ui.theme.MyApplicationTheme
+import com.example.ui.theme.PhantomTheme
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     setContent {
-      MyApplicationTheme {
+      PhantomTheme {
         val phantomViewModel: PhantomViewModel = viewModel()
         MainScreen(viewModel = phantomViewModel)
       }

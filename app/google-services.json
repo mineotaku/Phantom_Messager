@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "225173369185",
+    "project_id": "phantom-messenger-b84c0",
+    "storage_bucket": "phantom-messenger-b84c0.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:225173369185:android:7647fad3d4ae7bd62f1520",
+        "android_client_info": {
+          "package_name": "com.aistudio.phantom.secmsg"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "225173369185-kjju6pe090tp42preilc27ipneg49ep7.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.phantom.secmsg",
+            "certificate_hash": "60faec4c9e26acd0e7d29f03e04b28cabf2de019"
+          }
+        },
+        {
+          "client_id": "225173369185-kcvgin56ap0ah1uqhl3pa5nei4ru87n4.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCMcyCWjRDbFLZTvgexM0G8u6QQzEFfXT0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "225173369185-kcvgin56ap0ah1uqhl3pa5nei4ru87n4.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

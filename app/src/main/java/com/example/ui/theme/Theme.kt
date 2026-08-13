@@ -5,7 +5,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 
@@ -25,9 +24,7 @@ private val PhantomDarkColorScheme = darkColorScheme(
 )
 
 @Composable
-fun MyApplicationTheme(
-    darkTheme: Boolean = true,
-    dynamicColor: Boolean = false,
+fun PhantomTheme(
     content: @Composable () -> Unit
 ) {
     val colorScheme = PhantomDarkColorScheme
@@ -36,8 +33,10 @@ fun MyApplicationTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
-            window.navigationBarColor = colorScheme.surface.toArgb()
+            @Suppress("DEPRECATION")
+            window.statusBarColor = colorScheme.background.hashCode()
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = colorScheme.background.hashCode()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
         }
     }

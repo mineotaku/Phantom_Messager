@@ -40,8 +40,32 @@ data class EncryptedMessagePacket(
     val messageNumber: Int,
     val ciphertextHex: String,
     val ivHex: String,
+    val timestamp: Long,
+    val senderEphemeralKeyHex: String? = null
+)
+
+// Friend request payloads
+data class FriendRequestPayload(
+    val fromUserId: String,
+    val toUserId: String
+)
+
+data class FriendRequestAcceptPayload(
+    val userId: String,
+    val friendUserId: String
+)
+
+data class FriendRequestResponse(val success: Boolean)
+
+data class FriendRequestItem(
+    val fromUserId: String,
+    val fromUsername: String,
+    val fromDisplayName: String,
+    val fromAvatarStyle: String,
     val timestamp: Long
 )
+
+data class PingResponse(val status: String, val users: Int)
 
 interface PhantomApiClient {
     @POST("/api/register")
@@ -55,4 +79,19 @@ interface PhantomApiClient {
 
     @GET("/api/search")
     suspend fun searchProfiles(@Query("q") query: String): List<ProfilePayload>
+
+    @POST("/api/friend-request")
+    suspend fun sendFriendRequest(@Body payload: FriendRequestPayload): FriendRequestResponse
+
+    @GET("/api/friend-requests/{userId}")
+    suspend fun getFriendRequests(@Path("userId") userId: String): List<FriendRequestItem>
+
+    @POST("/api/friend-request/accept")
+    suspend fun acceptFriendRequest(@Body payload: FriendRequestAcceptPayload): FriendRequestResponse
+
+    @GET("/api/users")
+    suspend fun getAllUsers(): List<ProfilePayload>
+
+    @GET("/api/ping")
+    suspend fun ping(): PingResponse
 }

@@ -8,7 +8,7 @@ import com.example.phantom.data.db.MessageEntity
 import com.example.phantom.data.db.PhantomDatabase
 import com.example.phantom.data.db.SessionEntity
 import com.example.phantom.data.db.UserEntity
-import com.example.phantom.data.relay.RelayServer
+import com.example.phantom.data.network.ProfilePayload
 import com.example.phantom.data.repository.PhantomRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -29,13 +29,13 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
         initialValue = null
     )
 
-    val serverEvents: StateFlow<String> = RelayServer.serverEvents
+    val serverEvents: StateFlow<String> = MutableStateFlow("").asStateFlow()
 
     private val _searchQuery = MutableStateFlow("")
     val searchQuery: StateFlow<String> = _searchQuery.asStateFlow()
 
-    private val _searchResults = MutableStateFlow<List<RelayServer.PublicUserProfile>>(emptyList())
-    val searchResults: StateFlow<List<RelayServer.PublicUserProfile>> = _searchResults.asStateFlow()
+    private val _searchResults = MutableStateFlow<List<ProfilePayload>>(emptyList())
+    val searchResults: StateFlow<List<ProfilePayload>> = _searchResults.asStateFlow()
 
     private val _activeChatContact = MutableStateFlow<FriendshipEntity?>(null)
     val activeChatContact: StateFlow<FriendshipEntity?> = _activeChatContact.asStateFlow()
@@ -56,12 +56,29 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
     val activeSessionState: StateFlow<SessionEntity?> = _activeSessionState.asStateFlow()
 
     init {
-        // Periodically poll for incoming messages
+        // Ensure user is registered on server (handles Render cold restarts)
         viewModelScope.launch {
-            while (true) {
-                repository.pollAndDecryptIncomingMessages()
-                kotlinx.coroutines.delay(2000)
-            }
+            repository.ensureRegisteredOnServer()
+        }
+
+        // Fetch any pending friend requests from server (offline sync)
+        viewModelScope.launch {
+            repository.fetchPendingFriendRequests()
+        }
+
+        // Listen for real-time incoming friend requests via WebSocket
+        viewModelScope.launch {
+            repository.processFriendRequestEvents()
+        }
+
+        // Listen for real-time friend request acceptances via WebSocket
+        viewModelScope.launch {
+            repository.processFriendAcceptedEvents()
+        }
+
+        // Listen for real-time incoming encrypted messages via WebSocket
+        viewModelScope.launch {
+            repository.pollAndDecryptIncomingMessages()
         }
     }
 
@@ -78,6 +95,11 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun clearActiveChat() {
+        _activeChatContact.value = null
+        _activeSessionState.value = null
+    }
+
     fun searchUsers(query: String) {
         _searchQuery.value = query
         viewModelScope.launch {
@@ -86,9 +108,9 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun sendFriendRequest(profile: RelayServer.PublicUserProfile) {
+    fun sendFriendRequest(friendUserId: String) {
         viewModelScope.launch {
-            repository.sendFriendRequest(profile)
+            repository.sendFriendRequest(friendUserId)
         }
     }
 

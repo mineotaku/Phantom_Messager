@@ -87,7 +87,7 @@ fun KeyVerificationScreen(
                 }
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Key Fingerprint Verification",
+                    text = "Verify Security Code",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
@@ -119,7 +119,7 @@ fun KeyVerificationScreen(
             Spacer(modifier = Modifier.height(14.dp))
 
             Text(
-                text = "Safety Number with ${contact.friendDisplayName}",
+                text = "Security code with ${contact.friendDisplayName}",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurface
@@ -128,7 +128,7 @@ fun KeyVerificationScreen(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Compare these 12 blocks or scan the matrix with ${contact.friendDisplayName} to verify identity and guarantee no active man-in-the-middle.",
+                text = "Compare these numbers with your contact to confirm your conversation is secure.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -148,7 +148,7 @@ fun KeyVerificationScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "FINGERPRINT MATRIX",
+                        text = "Security Code",
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -217,7 +217,7 @@ fun KeyVerificationScreen(
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "Mark Key as Authenticated",
+                                text = "Mark as Verified",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
@@ -232,7 +232,7 @@ fun KeyVerificationScreen(
                             }
                         }
                         Text(
-                            text = "Flag contact key pair as manually verified.",
+                            text = "Confirm that you have verified this contact's security code.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

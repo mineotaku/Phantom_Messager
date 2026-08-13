@@ -13,7 +13,7 @@ import androidx.room.RoomDatabase
         MessageEntity::class,
         PrekeyEntity::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class PhantomDatabase : RoomDatabase() {

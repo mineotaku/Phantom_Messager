@@ -6,8 +6,7 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
 object RetrofitClient {
-    // Replace with Render backend URL once deployed, using localhost (10.0.2.2 for emulator) for now
-    private const val BASE_URL = "http://10.0.2.2:3000"
+    private const val BASE_URL = "https://phantom-relay-jvm2.onrender.com"
 
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())

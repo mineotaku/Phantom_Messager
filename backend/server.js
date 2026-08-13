@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,9 +19,45 @@ app.use(express.json());
 
 // IN-MEMORY DATABASE (For MVP/Testing)
 // In production, this should be Redis or MongoDB
-const profiles = {}; // userId -> { username, displayName, avatarStyle, bio, identityPublicKeyHex }
-const prekeyBundles = {}; // userId -> { signedPrekeyPublicHex, signedPrekeySignatureHex, oneTimePrekeysHex: [] }
+let profiles = {}; // userId -> { username, displayName, avatarStyle, bio, identityPublicKeyHex }
+let prekeyBundles = {}; // userId -> { signedPrekeyPublicHex, signedPrekeySignatureHex, oneTimePrekeysHex: [] }
 const offlineQueues = {}; // userId -> [ encryptedPackets ]
+let friendRequests = {}; // recipientUserId -> [{ fromUserId, fromUsername, fromDisplayName, fromAvatarStyle, timestamp }]
+
+const DATA_DIR = path.join(__dirname, 'data');
+const DATA_FILE = path.join(DATA_DIR, 'phantom_data.json');
+
+// File-based persistence
+function loadData() {
+    try {
+        if (!fs.existsSync(DATA_DIR)) {
+            fs.mkdirSync(DATA_DIR, { recursive: true });
+        }
+        if (fs.existsSync(DATA_FILE)) {
+            const data = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
+            if (data.profiles) profiles = data.profiles;
+            if (data.prekeyBundles) prekeyBundles = data.prekeyBundles;
+            if (data.friendRequests) friendRequests = data.friendRequests;
+            console.log('Loaded data from disk');
+        }
+    } catch (e) {
+        console.error('Failed to load data:', e);
+    }
+}
+
+function saveData() {
+    try {
+        if (!fs.existsSync(DATA_DIR)) {
+            fs.mkdirSync(DATA_DIR, { recursive: true });
+        }
+        const data = { profiles, prekeyBundles, friendRequests };
+        fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+    } catch (e) {
+        console.error('Failed to save data:', e);
+    }
+}
+
+loadData();
 
 // Active WebSocket connections mapping
 const activeConnections = {}; // userId -> socket.id
@@ -38,6 +76,8 @@ app.post('/api/register', (req, res) => {
         signedPrekeySignatureHex,
         oneTimePrekeysHex: oneTimePrekeysHex || []
     };
+
+    saveData();
 
     console.log(`Registered user: ${profile.userId}`);
     res.json({ success: true });
@@ -61,6 +101,7 @@ app.get('/api/bundle/:userId', (req, res) => {
         let opk = null;
         if (bundle.oneTimePrekeysHex && bundle.oneTimePrekeysHex.length > 0) {
             opk = bundle.oneTimePrekeysHex.shift();
+            saveData();
         }
         
         res.json({
@@ -83,6 +124,79 @@ app.get('/api/search', (req, res) => {
     res.json(results);
 });
 
+// 1. Friend Request Storage & Endpoints
+app.post('/api/friend-request', (req, res) => {
+    const { fromUserId, toUserId } = req.body;
+    const senderProfile = profiles[fromUserId];
+    
+    if (!senderProfile) return res.status(400).json({ error: "Sender not found" });
+    if (!profiles[toUserId]) return res.status(400).json({ error: "Recipient not found" });
+
+    if (!friendRequests[toUserId]) {
+        friendRequests[toUserId] = [];
+    }
+    
+    const requestData = {
+        fromUserId,
+        fromUsername: senderProfile.username,
+        fromDisplayName: senderProfile.displayName,
+        fromAvatarStyle: senderProfile.avatarStyle,
+        timestamp: Date.now()
+    };
+    
+    // Avoid duplicates
+    if (!friendRequests[toUserId].find(r => r.fromUserId === fromUserId)) {
+        friendRequests[toUserId].push(requestData);
+        saveData();
+    }
+    
+    const targetSocketId = activeConnections[toUserId];
+    if (targetSocketId && io.sockets.sockets.get(targetSocketId)) {
+        io.to(targetSocketId).emit('friend_request_received', requestData);
+    }
+    
+    res.json({ success: true });
+});
+
+app.get('/api/friend-requests/:userId', (req, res) => {
+    const userId = req.params.userId;
+    res.json(friendRequests[userId] || []);
+});
+
+app.post('/api/friend-request/accept', (req, res) => {
+    const { userId, friendUserId } = req.body;
+    
+    if (friendRequests[userId]) {
+        friendRequests[userId] = friendRequests[userId].filter(r => r.fromUserId !== friendUserId);
+        saveData();
+    }
+    
+    const acceptorProfile = profiles[userId];
+    if (acceptorProfile) {
+        const friendSocketId = activeConnections[friendUserId];
+        if (friendSocketId && io.sockets.sockets.get(friendSocketId)) {
+            io.to(friendSocketId).emit('friend_request_accepted', {
+                acceptedByUserId: userId,
+                acceptedByUsername: acceptorProfile.username,
+                acceptedByDisplayName: acceptorProfile.displayName,
+                acceptedByAvatarStyle: acceptorProfile.avatarStyle
+            });
+        }
+    }
+    
+    res.json({ success: true });
+});
+
+// 2. List All Users Endpoint
+app.get('/api/users', (req, res) => {
+    res.json(Object.values(profiles));
+});
+
+// 3. Ping Endpoint
+app.get('/api/ping', (req, res) => {
+    res.json({ status: 'alive', users: Object.keys(profiles).length });
+});
+
 // WebSocket for Real-time Messaging
 io.on('connection', (socket) => {
     console.log(`Client connected: ${socket.id}`);
@@ -100,14 +214,21 @@ io.on('connection', (socket) => {
             });
             offlineQueues[userId] = [];
         }
+        
+        // 5. WebSocket Friend Request Events
+        if (friendRequests[userId] && friendRequests[userId].length > 0) {
+            friendRequests[userId].forEach(request => {
+                socket.emit('friend_request_received', request);
+            });
+        }
     });
 
     // Handle incoming E2EE packets from Alice to Bob
     socket.on('send_message', (packet) => {
-        const targetUserId = packet.receiverId;
+        const targetUserId = packet.recipientUserId;
         const targetSocketId = activeConnections[targetUserId];
 
-        console.log(`Routing packet from ${packet.senderId} to ${packet.receiverId}`);
+        console.log(`Routing packet from ${packet.senderUserId} to ${packet.recipientUserId}`);
 
         if (targetSocketId && io.sockets.sockets.get(targetSocketId)) {
             // Target is online, push immediately

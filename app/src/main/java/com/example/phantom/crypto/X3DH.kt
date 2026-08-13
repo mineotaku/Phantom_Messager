@@ -16,7 +16,7 @@ object X3DH {
     data class InitiationResult(
         val sharedMasterSecretHex: String,
         val senderIdentityKeyHex: String,
-        val senderEphemeralKeyHex: String,
+        val senderEphemeralPublicKeyHex: String,
         val oneTimePrekeyUsedHex: String?
     )
 
@@ -67,7 +67,7 @@ object X3DH {
         return InitiationResult(
             sharedMasterSecretHex = CryptoUtils.toHex(masterSecretBytes),
             senderIdentityKeyHex = CryptoUtils.toHex(senderIdentityKeyPair.second.encoded),
-            senderEphemeralKeyHex = CryptoUtils.toHex(senderEphemeralKeyPair.public.encoded),
+            senderEphemeralPublicKeyHex = CryptoUtils.toHex(senderEphemeralKeyPair.public.encoded),
             oneTimePrekeyUsedHex = bobBundle.oneTimePrekeyHex
         )
     }

@@ -15,29 +15,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Verified
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -49,8 +37,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -58,13 +44,14 @@ import androidx.compose.ui.unit.sp
 import com.example.phantom.data.db.FriendshipEntity
 import com.example.phantom.data.db.UserEntity
 import com.example.ui.theme.PhantomBackground
+import com.example.ui.theme.PhantomOnlineGreen
+import com.example.ui.theme.PhantomOnSurfaceVariant
 import com.example.ui.theme.PhantomOutline
 import com.example.ui.theme.PhantomPrimary
-import com.example.ui.theme.PhantomPrimaryVariant
 import com.example.ui.theme.PhantomSecondary
-import com.example.ui.theme.PhantomSurface
 import com.example.ui.theme.PhantomSurfaceVariant
 import com.example.ui.theme.PhantomTertiary
+import com.example.ui.theme.PhantomUnreadBadge
 
 @Composable
 fun ChatsListScreen(
@@ -74,14 +61,7 @@ fun ChatsListScreen(
     onSwitchUser: (String) -> Unit,
     onOpenSocial: () -> Unit
 ) {
-    var showUserMenu by remember { mutableStateOf(false) }
     var filterQuery by remember { mutableStateOf("") }
-
-    val demoAccounts = listOf(
-        Pair("cipher_phantom", "Cipher Spectre"),
-        Pair("nova_mesh", "Nova Vance"),
-        Pair("shadow_pulse", "Shadow Echo")
-    )
 
     val filteredFriends = friends.filter {
         it.friendDisplayName.contains(filterQuery, ignoreCase = true) ||
@@ -93,52 +73,45 @@ fun ChatsListScreen(
             .fillMaxSize()
             .background(PhantomBackground)
     ) {
-        // App Top Header Bar
-        Surface(
-            color = PhantomSurface,
-            tonalElevation = 0.dp
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 12.dp)
         ) {
-            Column(
+            Text(
+                text = "Chats",
+                style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            OutlinedTextField(
+                value = filterQuery,
+                onValueChange = { filterQuery = it },
+                placeholder = { Text("Search...", fontSize = 15.sp) },
+                leadingIcon = { 
+                    Icon(
+                        Icons.Default.Search, 
+                        contentDescription = null, 
+                        tint = PhantomOnSurfaceVariant, 
+                        modifier = Modifier.size(20.dp)
+                    ) 
+                },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Chats",
-                        style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Integrated Search Input Bar
-                OutlinedTextField(
-                    value = filterQuery,
-                    onValueChange = { filterQuery = it },
-                    placeholder = { Text("Search...", fontSize = 15.sp) },
-                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp)) },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(44.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color.Transparent,
-                        unfocusedBorderColor = Color.Transparent,
-                        focusedContainerColor = PhantomSurfaceVariant.copy(alpha = 0.8f),
-                        unfocusedContainerColor = PhantomSurfaceVariant.copy(alpha = 0.5f)
-                    ),
-                    singleLine = true
-                )
-            }
+                    .height(44.dp),
+                shape = RoundedCornerShape(22.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color.Transparent,
+                    unfocusedBorderColor = Color.Transparent,
+                    focusedContainerColor = PhantomSurfaceVariant.copy(alpha = 0.8f),
+                    unfocusedContainerColor = PhantomSurfaceVariant.copy(alpha = 0.5f)
+                ),
+                singleLine = true
+            )
         }
 
-        // Active Conversations List
         if (filteredFriends.isEmpty()) {
             Box(
                 modifier = Modifier
@@ -147,31 +120,16 @@ fun ChatsListScreen(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(
-                        modifier = Modifier
-                            .size(64.dp)
-                            .clip(CircleShape)
-                            .background(PhantomSurfaceVariant.copy(alpha = 0.4f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = PhantomOutline,
-                            modifier = Modifier.size(32.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.height(16.dp))
                     Text(
-                        text = if (filterQuery.isBlank()) "No Active E2EE Sessions" else "No matching contacts",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                        text = "Say Hello \uD83D\uDC4B",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.SemiBold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
-                        text = "Connect with contacts on the Social tab to start an end-to-end encrypted chat.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        text = "Your friends will appear here once you start chatting.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PhantomOnSurfaceVariant,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
                 }
@@ -188,7 +146,7 @@ fun ChatsListScreen(
                     HorizontalDivider(
                         color = PhantomOutline.copy(alpha = 0.3f),
                         thickness = 0.5.dp,
-                        modifier = Modifier.padding(start = 72.dp)
+                        modifier = Modifier.padding(start = 86.dp) // Aligns with the text content
                     )
                 }
             }
@@ -207,13 +165,11 @@ private fun ChatItemRow(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick() }
-            .testTag("chat_item_${friendship.friendUsername}")
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Contact Avatar Circle with Verification Badge
         Box(
-            modifier = Modifier.size(48.dp)
+            modifier = Modifier.size(54.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -222,69 +178,100 @@ private fun ChatItemRow(
                     .background(
                         Brush.linearGradient(
                             listOf(
-                                PhantomPrimary.copy(alpha = 0.3f),
-                                PhantomSecondary.copy(alpha = 0.2f)
+                                PhantomPrimary.copy(alpha = 0.8f),
+                                PhantomSecondary.copy(alpha = 0.8f)
                             )
                         )
-                    )
-                    .border(1.dp, PhantomOutline, CircleShape),
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = initial,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = Color.White
                 )
             }
 
-            if (friendship.isVerifiedKey) {
-                Box(
-                    modifier = Modifier
-                        .size(16.dp)
-                        .clip(CircleShape)
-                        .background(PhantomBackground)
-                        .align(Alignment.BottomEnd),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Verified,
-                        contentDescription = "Verified Key",
-                        tint = PhantomTertiary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                }
-            }
+            Box(
+                modifier = Modifier
+                    .size(14.dp)
+                    .clip(CircleShape)
+                    .background(PhantomOnlineGreen)
+                    .border(2.dp, PhantomBackground, CircleShape)
+                    .align(Alignment.BottomEnd)
+            )
         }
 
-        Spacer(modifier = Modifier.width(14.dp))
+        Spacer(modifier = Modifier.width(16.dp))
 
-        // Name & Last Message Column
         Column(
             modifier = Modifier.weight(1f)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+                verticalAlignment = Alignment.Bottom
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = friendship.friendDisplayName,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (friendship.isVerifiedKey) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Default.Verified,
+                            contentDescription = "Verified",
+                            tint = PhantomTertiary,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+                
+                Spacer(modifier = Modifier.width(8.dp))
+                
                 Text(
-                    text = friendship.friendDisplayName,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    text = "now",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = PhantomOnSurfaceVariant
                 )
             }
 
-            Spacer(modifier = Modifier.height(2.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            Text(
-                text = "@${friendship.friendUsername}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Tap to start chatting",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PhantomOnSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Box(
+                    modifier = Modifier
+                        .background(PhantomUnreadBadge, CircleShape)
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "1",
+                        fontSize = 10.sp,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         }
     }
 }

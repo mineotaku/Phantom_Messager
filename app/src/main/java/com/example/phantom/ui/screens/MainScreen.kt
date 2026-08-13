@@ -3,9 +3,9 @@ package com.example.phantom.ui.screens
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.Chat
 import androidx.compose.material.icons.filled.Group
-import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -23,7 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.example.phantom.ui.PhantomViewModel
-import com.example.ui.theme.PhantomOutline
+import com.example.ui.theme.PhantomOnSurfaceVariant
 import com.example.ui.theme.PhantomPrimary
 import com.example.ui.theme.PhantomSurface
 
@@ -74,7 +74,7 @@ fun MainScreen(viewModel: PhantomViewModel) {
             contact = activeContact!!,
             messages = activeMessages,
             session = activeSession,
-            onBack = { viewModel.openChatWith(activeContact!!.copy(friendUserId = "")) },
+            onBack = { viewModel.clearActiveChat() },
             onSendMessage = { text -> viewModel.sendMessage(text) },
             onOpenKeyVerification = { isVerifyingKeyForContact = true }
         )
@@ -83,50 +83,45 @@ fun MainScreen(viewModel: PhantomViewModel) {
 
     Scaffold(
         bottomBar = {
-            Surface(
-                color = PhantomSurface,
-                border = androidx.compose.foundation.BorderStroke(0.5.dp, PhantomOutline.copy(alpha = 0.5f))
+            NavigationBar(
+                containerColor = PhantomSurface,
+                tonalElevation = 0.dp
             ) {
-                NavigationBar(
-                    containerColor = PhantomSurface,
-                    tonalElevation = 0.dp
-                ) {
-                    NavigationBarItem(
-                        selected = currentTab == PhantomNavRoute.Chats,
-                        onClick = { currentTab = PhantomNavRoute.Chats },
-                        icon = { Icon(Icons.Default.Chat, contentDescription = "Chats") },
-                        label = { Text("Chats") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = PhantomPrimary,
-                            indicatorColor = PhantomPrimary.copy(alpha = 0.2f)
-                        ),
-                        modifier = Modifier.testTag("nav_tab_chats")
+                NavigationBarItem(
+                    selected = currentTab == PhantomNavRoute.Chats,
+                    onClick = { currentTab = PhantomNavRoute.Chats },
+                    icon = { Icon(Icons.AutoMirrored.Filled.Chat, contentDescription = "Chats") },
+                    label = { Text("Chats") },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = PhantomPrimary,
+                        unselectedIconColor = PhantomOnSurfaceVariant,
+                        indicatorColor = PhantomPrimary.copy(alpha = 0.15f)
                     )
+                )
 
-                    NavigationBarItem(
-                        selected = currentTab == PhantomNavRoute.Social,
-                        onClick = { currentTab = PhantomNavRoute.Social },
-                        icon = { Icon(Icons.Default.Group, contentDescription = "Social") },
-                        label = { Text("Social") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = PhantomPrimary,
-                            indicatorColor = PhantomPrimary.copy(alpha = 0.2f)
-                        ),
-                        modifier = Modifier.testTag("nav_tab_social")
+                NavigationBarItem(
+                    selected = currentTab == PhantomNavRoute.Social,
+                    onClick = { currentTab = PhantomNavRoute.Social },
+                    icon = { Icon(Icons.Default.Group, contentDescription = "Contacts") },
+                    label = { Text("Contacts") },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = PhantomPrimary,
+                        unselectedIconColor = PhantomOnSurfaceVariant,
+                        indicatorColor = PhantomPrimary.copy(alpha = 0.15f)
                     )
+                )
 
-                    NavigationBarItem(
-                        selected = currentTab == PhantomNavRoute.Profile,
-                        onClick = { currentTab = PhantomNavRoute.Profile },
-                        icon = { Icon(Icons.Default.Shield, contentDescription = "Vault") },
-                        label = { Text("Vault") },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = PhantomPrimary,
-                            indicatorColor = PhantomPrimary.copy(alpha = 0.2f)
-                        ),
-                        modifier = Modifier.testTag("nav_tab_profile")
+                NavigationBarItem(
+                    selected = currentTab == PhantomNavRoute.Profile,
+                    onClick = { currentTab = PhantomNavRoute.Profile },
+                    icon = { Icon(Icons.Default.Settings, contentDescription = "Settings") },
+                    label = { Text("Settings") },
+                    colors = NavigationBarItemDefaults.colors(
+                        selectedIconColor = PhantomPrimary,
+                        unselectedIconColor = PhantomOnSurfaceVariant,
+                        indicatorColor = PhantomPrimary.copy(alpha = 0.15f)
                     )
-                }
+                )
             }
         }
     ) { paddingValues ->
@@ -145,7 +140,7 @@ fun MainScreen(viewModel: PhantomViewModel) {
                     searchResults = searchResults,
                     friendships = friendships,
                     onSearch = { query -> viewModel.searchUsers(query) },
-                    onSendFriendRequest = { profile -> viewModel.sendFriendRequest(profile) },
+                    onSendFriendRequest = { friendUserId -> viewModel.sendFriendRequest(friendUserId) },
                     onAcceptRequest = { friendUserId -> viewModel.acceptFriendRequest(friendUserId) },
                     onBlockUser = { friendUserId -> viewModel.blockUser(friendUserId) }
                 )

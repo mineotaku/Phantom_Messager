@@ -1,6 +1,5 @@
 package com.example.phantom.ui.screens
 
-import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,19 +20,25 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.automirrored.filled.ExitToApp
+import androidx.compose.material.icons.filled.Block
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Key
 import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Verified
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -44,10 +49,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -56,7 +59,6 @@ import com.example.phantom.data.db.UserEntity
 import com.example.ui.theme.PhantomBackground
 import com.example.ui.theme.PhantomOutline
 import com.example.ui.theme.PhantomPrimary
-import com.example.ui.theme.PhantomPrimaryVariant
 import com.example.ui.theme.PhantomSecondary
 import com.example.ui.theme.PhantomSurface
 import com.example.ui.theme.PhantomSurfaceVariant
@@ -67,14 +69,16 @@ fun ProfileScreen(
     currentUser: UserEntity?,
     serverEvents: String
 ) {
-    var showRecoveryKey by remember { mutableStateOf(false) }
+    var showRecoveryPhrase by remember { mutableStateOf(false) }
+    var notificationsEnabled by remember { mutableStateOf(true) }
+    var soundEnabled by remember { mutableStateOf(true) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(PhantomBackground)
     ) {
-        // App Header Bar
+        // Header
         Surface(
             color = PhantomSurface,
             tonalElevation = 2.dp,
@@ -90,31 +94,22 @@ fun ProfileScreen(
                     modifier = Modifier
                         .size(36.dp)
                         .clip(CircleShape)
-                        .background(PhantomTertiary.copy(alpha = 0.2f)),
+                        .background(PhantomPrimary.copy(alpha = 0.2f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Shield,
+                        imageVector = Icons.Default.Settings,
                         contentDescription = null,
-                        tint = PhantomTertiary,
+                        tint = PhantomPrimary,
                         modifier = Modifier.size(20.dp)
                     )
                 }
-
                 Spacer(modifier = Modifier.width(10.dp))
-
-                Column {
-                    Text(
-                        text = "Identity Vault",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                    Text(
-                        text = "Hardware Security Enclave • Key Management",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
+                Text(
+                    text = "Settings",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
             }
         }
 
@@ -131,15 +126,15 @@ fun ProfileScreen(
                 shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, PhantomOutline.copy(alpha = 0.5f))
             ) {
-                Column(
+                Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(72.dp)
+                            .size(60.dp)
                             .clip(CircleShape)
                             .background(
                                 Brush.linearGradient(
@@ -154,111 +149,77 @@ fun ProfileScreen(
                     ) {
                         Text(
                             text = currentUser?.displayName?.take(1)?.uppercase() ?: "P",
-                            style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
+                            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = currentUser?.displayName ?: "Anonymous",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(
-                            imageVector = Icons.Default.Verified,
-                            contentDescription = "Enclave Active",
-                            tint = PhantomTertiary,
-                            modifier = Modifier.size(18.dp)
-                        )
-                    }
-
-                    Text(
-                        text = "@${currentUser?.username ?: "unknown"}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Surface(
-                        color = PhantomTertiary.copy(alpha = 0.15f),
-                        shape = RoundedCornerShape(12.dp)
-                    ) {
-                        Text(
-                            text = "ENCLAVE ACTIVE • 100% SECURE",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = PhantomTertiary,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Cryptographic Key Bundle
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = PhantomSurface,
-                shape = RoundedCornerShape(20.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, PhantomOutline.copy(alpha = 0.5f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp)
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Default.Key,
-                            contentDescription = null,
-                            tint = PhantomSecondary,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Device Cryptographic Bundle",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
+                        Text(
+                            text = "@${currentUser?.username ?: "unknown"}",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
 
-                    Spacer(modifier = Modifier.height(14.dp))
-
-                    KeyItem("Identity Public Key (IK)", currentUser?.identityPublicKeyHex ?: "None", PhantomTertiary)
-                    KeyItem("Signed Prekey (SPK)", currentUser?.signedPrekeyPublicHex ?: "None", PhantomPrimaryVariant)
-                    KeyItem("Signed Prekey Signature", currentUser?.signedPrekeySignatureHex ?: "None", PhantomSecondary)
-
-                    Spacer(modifier = Modifier.height(20.dp))
-
-                    // Account Recovery Section
-                    Text(
-                        text = "Account Recovery Mnemonic",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Profile",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
                     )
+                }
+            }
 
-                    Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-                    if (showRecoveryKey) {
-                        val words = (currentUser?.recoveryKey ?: "phantom secure mnemonic zero knowledge key vault seed phrase").split(" ")
+            // ── Account Section ──
+            SettingsSectionHeader("Account")
+            SettingsCard {
+                SettingsItem(
+                    icon = Icons.Default.Person,
+                    iconTint = PhantomPrimary,
+                    title = "Edit Profile",
+                    subtitle = "Display name, username"
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ── Privacy & Security Section ──
+            SettingsSectionHeader("Privacy & Security")
+            SettingsCard {
+                SettingsItem(
+                    icon = Icons.Default.Lock,
+                    iconTint = PhantomTertiary,
+                    title = "Recovery Phrase",
+                    subtitle = if (showRecoveryPhrase) "Tap to hide" else "Tap to reveal your backup phrase",
+                    onClick = { showRecoveryPhrase = !showRecoveryPhrase }
+                )
+                AnimatedVisibility(visible = showRecoveryPhrase) {
+                    val words = (currentUser?.recoveryKey ?: "").split(" ").filter { it.isNotBlank() }
+                    if (words.isNotEmpty()) {
                         Surface(
                             color = PhantomSurfaceVariant.copy(alpha = 0.6f),
                             shape = RoundedCornerShape(12.dp),
                             border = androidx.compose.foundation.BorderStroke(0.5.dp, PhantomOutline.copy(alpha = 0.5f)),
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
-                                val chunkedWords = words.chunked(3)
-                                chunkedWords.forEachIndexed { rowIndex, rowWords ->
+                                words.chunked(3).forEachIndexed { rowIndex, rowWords ->
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 4.dp),
+                                            .padding(vertical = 3.dp),
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         rowWords.forEachIndexed { colIndex, word ->
@@ -275,121 +236,225 @@ fun ProfileScreen(
                                 }
                             }
                         }
-                    } else {
-                        OutlinedButton(
-                            onClick = { showRecoveryKey = true },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .testTag("reveal_recovery_key_button"),
-                            shape = RoundedCornerShape(12.dp)
-                        ) {
-                            Icon(Icons.Default.Lock, contentDescription = null, modifier = Modifier.size(16.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Reveal 24-Word Recovery Mnemonic", fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                        }
                     }
                 }
+                SettingsDivider()
+                SettingsItem(
+                    icon = Icons.Default.Shield,
+                    iconTint = PhantomSecondary,
+                    title = "Security Verification",
+                    subtitle = "Verify contacts' security codes"
+                )
+                SettingsDivider()
+                SettingsItem(
+                    icon = Icons.Default.Block,
+                    iconTint = Color(0xFFEF5350),
+                    title = "Blocked Contacts",
+                    subtitle = "Manage blocked users"
+                )
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            // Relay Server Console
-            Surface(
-                modifier = Modifier.fillMaxWidth(),
-                color = PhantomSurface,
-                shape = RoundedCornerShape(20.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, PhantomOutline.copy(alpha = 0.5f))
-            ) {
-                Column(
-                    modifier = Modifier.padding(18.dp)
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = Icons.Default.Terminal,
-                                contentDescription = null,
-                                tint = PhantomTertiary,
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Relay Network Terminal",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(PhantomBackground, RoundedCornerShape(12.dp))
-                            .border(0.5.dp, PhantomOutline.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                            .padding(12.dp)
-                    ) {
-                        Text(
-                            text = "> $serverEvents",
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 11.sp,
-                            color = PhantomTertiary,
-                            lineHeight = 16.sp
-                        )
-                    }
-                }
+            // ── Notifications Section ──
+            SettingsSectionHeader("Notifications")
+            SettingsCard {
+                SettingsToggleItem(
+                    icon = Icons.Default.Notifications,
+                    iconTint = PhantomPrimary,
+                    title = "Message Notifications",
+                    checked = notificationsEnabled,
+                    onCheckedChange = { notificationsEnabled = it }
+                )
+                SettingsDivider()
+                SettingsToggleItem(
+                    icon = Icons.Default.VolumeUp,
+                    iconTint = PhantomPrimary,
+                    title = "Notification Sound",
+                    checked = soundEnabled,
+                    onCheckedChange = { soundEnabled = it }
+                )
             }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ── About Section ──
+            SettingsSectionHeader("About")
+            SettingsCard {
+                SettingsItem(
+                    icon = Icons.Default.Info,
+                    iconTint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    title = "Phantom Messenger",
+                    subtitle = "Version 1.0.0 • End-to-end encrypted"
+                )
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // ── Danger Zone ──
+            SettingsCard {
+                SettingsItem(
+                    icon = Icons.AutoMirrored.Filled.ExitToApp,
+                    iconTint = Color(0xFFEF5350),
+                    title = "Sign Out",
+                    titleColor = Color(0xFFEF5350)
+                )
+                SettingsDivider()
+                SettingsItem(
+                    icon = Icons.Default.DeleteForever,
+                    iconTint = Color(0xFFEF5350),
+                    title = "Delete Account",
+                    subtitle = "This action cannot be undone",
+                    titleColor = Color(0xFFEF5350)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+        }
+    }
+}
+
+// ── Reusable Settings Components ──
+
+@Composable
+private fun SettingsSectionHeader(title: String) {
+    Text(
+        text = title.uppercase(),
+        style = MaterialTheme.typography.labelSmall.copy(
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.sp
+        ),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 4.dp, bottom = 8.dp)
+    )
+}
+
+@Composable
+private fun SettingsCard(content: @Composable () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = PhantomSurface,
+        shape = RoundedCornerShape(16.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, PhantomOutline.copy(alpha = 0.5f))
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            content()
         }
     }
 }
 
 @Composable
-private fun KeyItem(label: String, valueHex: String, color: androidx.compose.ui.graphics.Color) {
-    val clipboardManager = LocalClipboardManager.current
-    val context = LocalContext.current
-
-    Column(
+private fun SettingsItem(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    subtitle: String? = null,
+    titleColor: Color = MaterialTheme.colorScheme.onSurface,
+    onClick: (() -> Unit)? = null
+) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 4.dp)
-            .background(PhantomSurfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(10.dp))
-            .border(0.5.dp, PhantomOutline.copy(alpha = 0.3f), RoundedCornerShape(10.dp))
-            .clickable {
-                clipboardManager.setText(AnnotatedString(valueHex))
-                Toast.makeText(context, "Copied $label to clipboard", Toast.LENGTH_SHORT).show()
-            }
-            .padding(10.dp)
+            .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(iconTint.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
         ) {
-            Text(
-                text = label.uppercase(),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
             Icon(
-                imageVector = Icons.Default.ContentCopy,
-                contentDescription = "Copy",
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(12.dp)
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
             )
         }
-        Spacer(modifier = Modifier.height(2.dp))
+
+        Spacer(modifier = Modifier.width(14.dp))
+
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.bodyLarge,
+                color = titleColor
+            )
+            if (subtitle != null) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (onClick != null) {
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsToggleItem(
+    icon: ImageVector,
+    iconTint: Color,
+    title: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(iconTint.copy(alpha = 0.12f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconTint,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+
+        Spacer(modifier = Modifier.width(14.dp))
+
         Text(
-            text = if (valueHex.length > 36) valueHex.take(18) + "..." + valueHex.takeLast(18) else valueHex,
-            fontFamily = FontFamily.Monospace,
-            fontSize = 11.sp,
-            color = color,
-            fontWeight = FontWeight.SemiBold
+            text = title,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f)
+        )
+
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = PhantomPrimary,
+                checkedTrackColor = PhantomPrimary.copy(alpha = 0.3f)
+            )
         )
     }
+}
+
+@Composable
+private fun SettingsDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(horizontal = 16.dp),
+        color = PhantomOutline.copy(alpha = 0.3f)
+    )
 }
