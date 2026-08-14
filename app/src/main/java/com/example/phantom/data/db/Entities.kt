@@ -46,7 +46,8 @@ data class SessionEntity(
     val receiveSequenceNumber: Int,
     val previousChainLength: Int,
     val sharedMasterSecretHex: String,
-    val aliceBaseKeyHex: String? = null
+    val aliceBaseKeyHex: String? = null,
+    val oneTimePrekeyUsedHex: String? = null
 )
 
 @Entity(tableName = "messages")

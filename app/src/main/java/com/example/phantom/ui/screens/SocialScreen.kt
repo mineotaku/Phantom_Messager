@@ -21,8 +21,10 @@ import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -41,6 +43,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.phantom.data.db.FriendshipEntity
@@ -53,6 +56,8 @@ fun SocialScreen(
     currentUser: UserEntity?,
     searchQuery: String,
     searchResults: List<ProfilePayload>,
+    isSearching: Boolean,
+    searchError: String?,
     friendships: List<FriendshipEntity>,
     onSearch: (String) -> Unit,
     onSendFriendRequest: (String) -> Unit,
@@ -113,6 +118,67 @@ fun SocialScreen(
         LazyColumn(
             modifier = Modifier.fillMaxSize()
         ) {
+            // Loading indicator
+            if (isSearching) {
+                item {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(24.dp),
+                            strokeWidth = 2.dp,
+                            color = PhantomPrimary
+                        )
+                    }
+                }
+            }
+
+            // Error message
+            if (searchError != null) {
+                item {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(PhantomError.copy(alpha = 0.12f))
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.WifiOff,
+                            contentDescription = null,
+                            tint = PhantomError,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = searchError ?: "",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PhantomError
+                        )
+                    }
+                }
+            }
+
+            // Minimum query hint
+            if (queryText.isNotEmpty() && queryText.trim().length < 2 && !isSearching && searchError == null) {
+                item {
+                    Text(
+                        text = "Type at least 2 characters to search",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = PhantomTextMuted,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 16.dp)
+                    )
+                }
+            }
+
             if (searchResults.isNotEmpty()) {
                 item {
                     Text(
@@ -142,7 +208,7 @@ fun SocialScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
-                                    text = profile.displayName.take(1).uppercase(),
+                                    text = (profile.displayName ?: profile.username ?: "Unknown").take(1).uppercase(),
                                     fontWeight = FontWeight.Bold,
                                     color = PhantomOnSurface
                                 )
@@ -151,8 +217,8 @@ fun SocialScreen(
                             Spacer(modifier = Modifier.width(16.dp))
 
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(profile.displayName, fontWeight = FontWeight.Bold, color = PhantomOnBackground, fontSize = 16.sp)
-                                Text("@${profile.username}", style = MaterialTheme.typography.bodyMedium, color = PhantomTextMuted)
+                                Text(profile.displayName ?: profile.username ?: "Unknown", fontWeight = FontWeight.Bold, color = PhantomOnBackground, fontSize = 16.sp)
+                                Text("@${profile.username ?: "unknown"}", style = MaterialTheme.typography.bodyMedium, color = PhantomTextMuted)
                             }
 
                             when (friendshipStatus) {
@@ -190,6 +256,29 @@ fun SocialScreen(
                             }
                         }
                         HorizontalDivider(modifier = Modifier.padding(start = 80.dp), color = PhantomDivider, thickness = 1.dp)
+                    }
+                }
+
+                // No results found (after search completed with 0 results)
+            } else if (queryText.trim().length >= 2 && !isSearching && searchError == null) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "No users found",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = PhantomOnBackground
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Try a different username or display name",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = PhantomTextMuted
+                        )
                     }
                 }
             }

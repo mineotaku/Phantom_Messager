@@ -8,11 +8,11 @@ import retrofit2.http.Query
 
 data class ProfilePayload(
     val userId: String,
-    val username: String,
-    val displayName: String,
-    val avatarStyle: String,
-    val bio: String,
-    val identityPublicKeyHex: String
+    val username: String? = null,
+    val displayName: String? = null,
+    val avatarStyle: String? = null,
+    val bio: String? = null,
+    val identityPublicKeyHex: String? = null
 )
 
 data class RegisterPayload(
@@ -41,7 +41,8 @@ data class EncryptedMessagePacket(
     val ciphertextHex: String,
     val ivHex: String,
     val timestamp: Long,
-    val senderEphemeralKeyHex: String? = null
+    val senderEphemeralKeyHex: String? = null,
+    val oneTimePrekeyUsedHex: String? = null
 )
 
 // Friend request payloads
@@ -59,10 +60,10 @@ data class FriendRequestResponse(val success: Boolean)
 
 data class FriendRequestItem(
     val fromUserId: String,
-    val fromUsername: String,
-    val fromDisplayName: String,
-    val fromAvatarStyle: String,
-    val timestamp: Long
+    val fromUsername: String? = null,
+    val fromDisplayName: String? = null,
+    val fromAvatarStyle: String? = null,
+    val timestamp: Long = 0L
 )
 
 data class PingResponse(val status: String, val users: Int)

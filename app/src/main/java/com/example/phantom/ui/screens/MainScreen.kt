@@ -40,6 +40,8 @@ fun MainScreen(viewModel: PhantomViewModel) {
     val friendships by viewModel.currentFriendships.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
+    val isSearching by viewModel.isSearching.collectAsState()
+    val searchError by viewModel.searchError.collectAsState()
     val activeContact by viewModel.activeChatContact.collectAsState()
     val activeMessages by viewModel.activeMessages.collectAsState()
     val activeSession by viewModel.activeSessionState.collectAsState()
@@ -138,6 +140,8 @@ fun MainScreen(viewModel: PhantomViewModel) {
                     currentUser = currentUser,
                     searchQuery = searchQuery,
                     searchResults = searchResults,
+                    isSearching = isSearching,
+                    searchError = searchError,
                     friendships = friendships,
                     onSearch = { query -> viewModel.searchUsers(query) },
                     onSendFriendRequest = { friendUserId -> viewModel.sendFriendRequest(friendUserId) },

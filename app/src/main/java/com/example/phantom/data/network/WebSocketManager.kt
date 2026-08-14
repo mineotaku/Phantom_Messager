@@ -12,17 +12,17 @@ import java.net.URI
 
 data class FriendRequestEvent(
     val fromUserId: String,
-    val fromUsername: String,
-    val fromDisplayName: String,
-    val fromAvatarStyle: String,
-    val timestamp: Long
+    val fromUsername: String? = null,
+    val fromDisplayName: String? = null,
+    val fromAvatarStyle: String? = null,
+    val timestamp: Long = 0L
 )
 
 data class FriendRequestAcceptedEvent(
     val acceptedByUserId: String,
-    val acceptedByUsername: String,
-    val acceptedByDisplayName: String,
-    val acceptedByAvatarStyle: String
+    val acceptedByUsername: String? = null,
+    val acceptedByDisplayName: String? = null,
+    val acceptedByAvatarStyle: String? = null
 )
 
 object WebSocketManager {

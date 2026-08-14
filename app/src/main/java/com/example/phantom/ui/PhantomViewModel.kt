@@ -1,6 +1,7 @@
 package com.example.phantom.ui
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.phantom.data.db.FriendshipEntity
@@ -10,6 +11,8 @@ import com.example.phantom.data.db.SessionEntity
 import com.example.phantom.data.db.UserEntity
 import com.example.phantom.data.network.ProfilePayload
 import com.example.phantom.data.repository.PhantomRepository
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -36,6 +39,14 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
 
     private val _searchResults = MutableStateFlow<List<ProfilePayload>>(emptyList())
     val searchResults: StateFlow<List<ProfilePayload>> = _searchResults.asStateFlow()
+
+    private val _isSearching = MutableStateFlow(false)
+    val isSearching: StateFlow<Boolean> = _isSearching.asStateFlow()
+
+    private val _searchError = MutableStateFlow<String?>(null)
+    val searchError: StateFlow<String?> = _searchError.asStateFlow()
+
+    private var searchJob: Job? = null
 
     private val _activeChatContact = MutableStateFlow<FriendshipEntity?>(null)
     val activeChatContact: StateFlow<FriendshipEntity?> = _activeChatContact.asStateFlow()
@@ -102,9 +113,33 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
 
     fun searchUsers(query: String) {
         _searchQuery.value = query
-        viewModelScope.launch {
-            val results = repository.searchUsers(query)
-            _searchResults.value = results
+
+        // Clear results immediately if query is too short
+        if (query.trim().length < 2) {
+            _searchResults.value = emptyList()
+            _searchError.value = null
+            _isSearching.value = false
+            searchJob?.cancel()
+            return
+        }
+
+        // Cancel any in-flight search and debounce 400ms
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            _isSearching.value = true
+            _searchError.value = null
+            delay(400L) // Debounce: wait for user to stop typing
+            try {
+                val results = repository.searchUsers(query.trim())
+                _searchResults.value = results
+                _searchError.value = null
+            } catch (e: Exception) {
+                Log.e("PhantomViewModel", "Search failed for query '$query'", e)
+                _searchResults.value = emptyList()
+                _searchError.value = "Could not reach server. Please try again."
+            } finally {
+                _isSearching.value = false
+            }
         }
     }
 

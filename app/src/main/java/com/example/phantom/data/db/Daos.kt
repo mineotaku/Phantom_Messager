@@ -84,6 +84,9 @@ interface PrekeyDao {
     @Query("SELECT * FROM prekeys WHERE userId = :userId AND isUsed = 0 LIMIT 1")
     suspend fun getAvailablePrekey(userId: String): PrekeyEntity?
 
+    @Query("SELECT * FROM prekeys WHERE publicKeyHex = :publicKeyHex LIMIT 1")
+    suspend fun getPrekeyByPublicKey(publicKeyHex: String): PrekeyEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPrekeys(prekeys: List<PrekeyEntity>)
 
