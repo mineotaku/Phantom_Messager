@@ -63,7 +63,9 @@ data class MessageEntity(
     val isOutgoing: Boolean,
     val isDelivered: Boolean,
     val dhEphemeralKeyHex: String,
-    val sequenceNumber: Int
+    val sequenceNumber: Int,
+    val mediaUrl: String? = null,
+    val mediaType: String? = null
 )
 
 @Entity(tableName = "prekeys")

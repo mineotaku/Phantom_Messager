@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
 
 const app = express();
 const server = http.createServer(app);
@@ -16,6 +17,23 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// Configure Multer for file uploads
+const uploadDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadDir)) {
+    fs.mkdirSync(uploadDir, { recursive: true });
+}
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        cb(null, Date.now() + '-' + Math.round(Math.random() * 1E9) + ext);
+    }
+});
+const upload = multer({ storage: storage });
 
 // IN-MEMORY DATABASE (For MVP/Testing)
 // In production, this should be Redis or MongoDB
@@ -197,6 +215,15 @@ app.get('/api/ping', (req, res) => {
     res.json({ status: 'alive', users: Object.keys(profiles).length });
 });
 
+// 4. File Upload Endpoint
+app.post('/api/upload', upload.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).json({ error: 'No file uploaded' });
+    }
+    const fileUrl = `/uploads/${req.file.filename}`;
+    res.json({ url: fileUrl });
+});
+
 // WebSocket for Real-time Messaging
 io.on('connection', (socket) => {
     console.log(`Client connected: ${socket.id}`);
@@ -224,21 +251,32 @@ io.on('connection', (socket) => {
     });
 
     // Handle incoming E2EE packets from Alice to Bob
-    socket.on('send_message', (packet) => {
+    socket.on('send_message', (packetInput) => {
+        let packet = packetInput;
+        // The Android client may send a JSON string, ensure it's an object
+        if (typeof packetInput === 'string') {
+            try {
+                packet = JSON.parse(packetInput);
+            } catch (e) {
+                console.error('Failed to parse packet payload', e);
+                return;
+            }
+        }
+
         const targetUserId = packet.recipientUserId;
         const targetSocketId = activeConnections[targetUserId];
 
         console.log(`Routing packet from ${packet.senderUserId} to ${packet.recipientUserId}`);
 
         if (targetSocketId && io.sockets.sockets.get(targetSocketId)) {
-            // Target is online, push immediately
-            io.to(targetSocketId).emit('receive_message', packet);
+            // Target is online, push immediately (ensure we send string to prevent client-side parsing issues)
+            io.to(targetSocketId).emit('receive_message', JSON.stringify(packet));
         } else {
             // Target is offline, store in queue
             if (!offlineQueues[targetUserId]) {
                 offlineQueues[targetUserId] = [];
             }
-            offlineQueues[targetUserId].push(packet);
+            offlineQueues[targetUserId].push(JSON.stringify(packet));
             console.log(`Stored packet offline for ${targetUserId}`);
         }
     });

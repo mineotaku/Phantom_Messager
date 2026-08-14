@@ -5,6 +5,9 @@ import retrofit2.http.GET
 import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.Query
+import retrofit2.http.Multipart
+import retrofit2.http.Part
+import okhttp3.MultipartBody
 
 data class ProfilePayload(
     val userId: String,
@@ -68,6 +71,8 @@ data class FriendRequestItem(
 
 data class PingResponse(val status: String, val users: Int)
 
+data class UploadResponse(val url: String)
+
 interface PhantomApiClient {
     @POST("/api/register")
     suspend fun registerUser(@Body payload: RegisterPayload): RegisterResponse
@@ -95,4 +100,8 @@ interface PhantomApiClient {
 
     @GET("/api/ping")
     suspend fun ping(): PingResponse
+
+    @Multipart
+    @POST("/api/upload")
+    suspend fun uploadMedia(@Part file: MultipartBody.Part): UploadResponse
 }

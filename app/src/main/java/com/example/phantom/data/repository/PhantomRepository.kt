@@ -400,11 +400,18 @@ class PhantomRepository(private val db: PhantomDatabase) {
     }.flowOn(Dispatchers.IO)
 
     /**
-     * Sends an encrypted 1:1 text message using Double Ratchet.
+     * Sends an encrypted 1:1 text/media message using Double Ratchet.
      */
-    suspend fun sendMessage(contactUserId: String, plaintext: String) = withContext(Dispatchers.IO) {
+    suspend fun sendMessage(contactUserId: String, text: String, mediaUrl: String? = null, mediaType: String? = null) = withContext(Dispatchers.IO) {
         val currentUser = getCurrentUser() ?: return@withContext
         val session = getOrCreateSession(contactUserId)
+
+        // Serialize message to JSON internally to support media
+        val payloadStr = org.json.JSONObject().apply {
+            put("text", text)
+            if (mediaUrl != null) put("mediaUrl", mediaUrl)
+            if (mediaType != null) put("mediaType", mediaType)
+        }.toString()
 
         val drState = DoubleRatchet.SessionState(
             rootKeyHex = session.rootKeyHex,
@@ -418,7 +425,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
             previousChainLength = session.previousChainLength
         )
 
-        val (updatedDrState, encryptedMsg) = DoubleRatchet.ratchetEncrypt(drState, plaintext)
+        val (updatedDrState, encryptedMsg) = DoubleRatchet.ratchetEncrypt(drState, payloadStr)
 
         // Update local session
         val updatedSession = session.copy(
@@ -443,12 +450,14 @@ class PhantomRepository(private val db: PhantomDatabase) {
             recipientUserId = contactUserId,
             ciphertextHex = encryptedMsg.ciphertextHex,
             ivHex = encryptedMsg.ivHex,
-            plaintext = plaintext,
+            plaintext = text,
             timestamp = System.currentTimeMillis(),
             isOutgoing = true,
             isDelivered = true,
             dhEphemeralKeyHex = encryptedMsg.header.dhEphemeralPublicKeyHex,
-            sequenceNumber = encryptedMsg.header.messageNumber
+            sequenceNumber = encryptedMsg.header.messageNumber,
+            mediaUrl = mediaUrl,
+            mediaType = mediaType
         )
         db.messageDao().insertMessage(messageEntity)
 
@@ -594,6 +603,19 @@ class PhantomRepository(private val db: PhantomDatabase) {
                 )
                 db.sessionDao().saveSession(updatedSession)
 
+                var text = decryptedPlaintext
+                var mediaUrl: String? = null
+                var mediaType: String? = null
+
+                try {
+                    val json = org.json.JSONObject(decryptedPlaintext)
+                    if (json.has("text")) text = json.getString("text")
+                    if (json.has("mediaUrl")) mediaUrl = json.getString("mediaUrl")
+                    if (json.has("mediaType")) mediaType = json.getString("mediaType")
+                } catch (e: Exception) {
+                    // Backwards compatibility for plain string messages
+                }
+
                 val messageEntity = MessageEntity(
                     messageId = packet.packetId,
                     conversationUserId = senderUserId,
@@ -601,12 +623,14 @@ class PhantomRepository(private val db: PhantomDatabase) {
                     recipientUserId = currentUser.userId,
                     ciphertextHex = packet.ciphertextHex,
                     ivHex = packet.ivHex,
-                    plaintext = decryptedPlaintext,
+                    plaintext = text,
                     timestamp = packet.timestamp,
                     isOutgoing = false,
                     isDelivered = true,
                     dhEphemeralKeyHex = packet.dhEphemeralKeyHex,
-                    sequenceNumber = packet.messageNumber
+                    sequenceNumber = packet.messageNumber,
+                    mediaUrl = mediaUrl,
+                    mediaType = mediaType
                 )
                 db.messageDao().insertMessage(messageEntity)
             } catch (e: Exception) {

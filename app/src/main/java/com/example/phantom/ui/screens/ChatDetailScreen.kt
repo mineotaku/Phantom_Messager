@@ -23,6 +23,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.AttachFile
+import androidx.compose.material.icons.filled.PlayCircle
+import androidx.compose.material.icons.filled.Audiotrack
+import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -41,9 +45,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import coil.compose.AsyncImage
+
 import com.example.phantom.data.db.FriendshipEntity
 import com.example.phantom.data.db.MessageEntity
 import com.example.phantom.data.db.SessionEntity
@@ -60,10 +70,22 @@ fun ChatDetailScreen(
     session: SessionEntity?,
     onBack: () -> Unit,
     onSendMessage: (String) -> Unit,
+    onSendMedia: (String, android.net.Uri, String?) -> Unit,
     onOpenKeyVerification: () -> Unit
 ) {
+    val context = LocalContext.current
     var messageText by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+
+    val mediaPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            val mimeType = context.contentResolver.getType(uri)
+            onSendMedia(messageText, uri, mimeType)
+            messageText = ""
+        }
+    }
 
     LaunchedEffect(messages.size) {
         if (messages.isNotEmpty()) {
@@ -188,6 +210,17 @@ fun ChatDetailScreen(
                     .padding(horizontal = 16.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.Bottom
             ) {
+                IconButton(
+                    onClick = { mediaPickerLauncher.launch("*/*") },
+                    modifier = Modifier.padding(bottom = 2.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AttachFile,
+                        contentDescription = "Attach Media",
+                        tint = PhantomOnSurfaceVariant
+                    )
+                }
+
                 OutlinedTextField(
                     value = messageText,
                     onValueChange = { messageText = it },
@@ -260,14 +293,56 @@ fun MessageBubble(msg: MessageEntity) {
                 .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Column {
-                Text(
-                    text = msg.plaintext,
-                    color = if (msg.isOutgoing) PhantomOnBubbleOutgoing else PhantomOnBubbleIncoming,
-                    fontSize = 15.sp,
-                    lineHeight = 20.sp
-                )
-                
-                Spacer(modifier = Modifier.height(4.dp))
+                if (msg.mediaUrl != null) {
+                    when (msg.mediaType) {
+                        "IMAGE" -> {
+                            AsyncImage(
+                                model = msg.mediaUrl,
+                                contentDescription = "Image",
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(200.dp)
+                                    .clip(RoundedCornerShape(8.dp)),
+                                contentScale = ContentScale.Crop
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                        "VIDEO" -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.PlayCircle, contentDescription = "Video", tint = if (msg.isOutgoing) PhantomOnBubbleOutgoing else PhantomOnBubbleIncoming)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Video Attachment", color = if (msg.isOutgoing) PhantomOnBubbleOutgoing else PhantomOnBubbleIncoming)
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                        "AUDIO" -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.Audiotrack, contentDescription = "Audio", tint = if (msg.isOutgoing) PhantomOnBubbleOutgoing else PhantomOnBubbleIncoming)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Audio Attachment", color = if (msg.isOutgoing) PhantomOnBubbleOutgoing else PhantomOnBubbleIncoming)
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                        else -> {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Default.InsertDriveFile, contentDescription = "File", tint = if (msg.isOutgoing) PhantomOnBubbleOutgoing else PhantomOnBubbleIncoming)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("File Attachment", color = if (msg.isOutgoing) PhantomOnBubbleOutgoing else PhantomOnBubbleIncoming)
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                        }
+                    }
+                }
+
+                if (msg.plaintext.isNotBlank()) {
+                    Text(
+                        text = msg.plaintext,
+                        color = if (msg.isOutgoing) PhantomOnBubbleOutgoing else PhantomOnBubbleIncoming,
+                        fontSize = 15.sp,
+                        lineHeight = 20.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
                 
                 Row(
                     modifier = Modifier.align(Alignment.End),

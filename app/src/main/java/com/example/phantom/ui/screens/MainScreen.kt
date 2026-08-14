@@ -72,12 +72,16 @@ fun MainScreen(viewModel: PhantomViewModel) {
     }
 
     if (activeContact != null) {
+        val context = androidx.compose.ui.platform.LocalContext.current
         ChatDetailScreen(
             contact = activeContact!!,
             messages = activeMessages,
             session = activeSession,
             onBack = { viewModel.clearActiveChat() },
             onSendMessage = { text -> viewModel.sendMessage(text) },
+            onSendMedia = { text, uri, mimeType -> 
+                viewModel.sendMediaMessage(text, uri, mimeType, context)
+            },
             onOpenKeyVerification = { isVerifyingKeyForContact = true }
         )
         return

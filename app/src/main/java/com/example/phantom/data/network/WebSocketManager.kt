@@ -119,9 +119,8 @@ object WebSocketManager {
     fun sendMessage(packet: EncryptedMessagePacket) {
         try {
             val jsonStr = packetAdapter.toJson(packet)
-            // Socket.IO sends string payload or JSONObject
-            // passing JSON string, backend will route it
-            socket?.emit("send_message", org.json.JSONObject(jsonStr))
+            // Send raw JSON string to prevent server-side parsing bugs when using different Socket.IO clients
+            socket?.emit("send_message", jsonStr)
         } catch (e: Exception) {
             Log.e("WebSocketManager", "Failed to send packet", e)
         }

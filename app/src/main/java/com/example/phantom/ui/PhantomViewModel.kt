@@ -180,6 +180,39 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+    fun sendMediaMessage(text: String, fileUri: android.net.Uri, mimeType: String?, context: android.content.Context) {
+        val contact = activeChatContact.value ?: return
+        viewModelScope.launch {
+            try {
+                val mediaType = when {
+                    mimeType?.startsWith("image/") == true -> "IMAGE"
+                    mimeType?.startsWith("video/") == true -> "VIDEO"
+                    mimeType?.startsWith("audio/") == true -> "AUDIO"
+                    else -> "FILE"
+                }
+                
+                val inputStream = context.contentResolver.openInputStream(fileUri)
+                val bytes = inputStream?.readBytes()
+                inputStream?.close()
+
+                if (bytes != null) {
+                    val requestFile = okhttp3.RequestBody.create(okhttp3.MediaType.parse(mimeType ?: "application/octet-stream"), bytes)
+                    val body = okhttp3.MultipartBody.Part.createFormData("file", "upload_${System.currentTimeMillis()}", requestFile)
+
+                    val response = com.example.phantom.data.network.RetrofitClient.api.uploadMedia(body)
+                    val fullUrl = "https://phantom-relay-jvm2.onrender.com" + response.url
+                    
+                    repository.sendMessage(contact.friendUserId, text, fullUrl, mediaType)
+
+                    val session = repository.getOrCreateSession(contact.friendUserId)
+                    _activeSessionState.value = session
+                }
+            } catch (e: Exception) {
+                Log.e("PhantomViewModel", "Failed to upload and send media", e)
+            }
+        }
+    }
+
     fun toggleKeyVerified(friendUserId: String, isVerified: Boolean) {
         viewModelScope.launch {
             repository.toggleKeyVerified(friendUserId, isVerified)
