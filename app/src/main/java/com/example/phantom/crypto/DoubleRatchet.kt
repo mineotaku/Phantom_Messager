@@ -50,7 +50,7 @@ object DoubleRatchet {
         val derived = CryptoUtils.hkdfExtractAndExpand(
             salt = masterSecretBytes,
             ikm = dhSecret,
-            info = "PhantomDoubleRatchetInitAlice".toByteArray(Charsets.UTF_8),
+            info = "PhantomDHRatchetStep".toByteArray(Charsets.UTF_8),
             outputLength = 64
         )
 
@@ -185,7 +185,7 @@ object DoubleRatchet {
         val derived1 = CryptoUtils.hkdfExtractAndExpand(
             salt = rootKeyBytes,
             ikm = dhSecret1,
-            info = "PhantomDHRatchetReceiving".toByteArray(Charsets.UTF_8),
+            info = "PhantomDHRatchetStep".toByteArray(Charsets.UTF_8),
             outputLength = 64
         )
         val nextRootKey1 = derived1.copyOfRange(0, 32)
@@ -197,7 +197,7 @@ object DoubleRatchet {
         val derived2 = CryptoUtils.hkdfExtractAndExpand(
             salt = nextRootKey1,
             ikm = dhSecret2,
-            info = "PhantomDHRatchetSending".toByteArray(Charsets.UTF_8),
+            info = "PhantomDHRatchetStep".toByteArray(Charsets.UTF_8),
             outputLength = 64
         )
         val nextRootKey2 = derived2.copyOfRange(0, 32)

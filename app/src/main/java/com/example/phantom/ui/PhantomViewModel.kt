@@ -11,6 +11,8 @@ import com.example.phantom.data.db.SessionEntity
 import com.example.phantom.data.db.UserEntity
 import com.example.phantom.data.network.ProfilePayload
 import com.example.phantom.data.repository.PhantomRepository
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -196,7 +198,8 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
                 inputStream?.close()
 
                 if (bytes != null) {
-                    val requestFile = okhttp3.RequestBody.create(okhttp3.MediaType.parse(mimeType ?: "application/octet-stream"), bytes)
+                    val mediaTypeParsed = (mimeType ?: "application/octet-stream").toMediaTypeOrNull()
+                    val requestFile = bytes.toRequestBody(mediaTypeParsed)
                     val body = okhttp3.MultipartBody.Part.createFormData("file", "upload_${System.currentTimeMillis()}", requestFile)
 
                     val response = com.example.phantom.data.network.RetrofitClient.api.uploadMedia(body)
