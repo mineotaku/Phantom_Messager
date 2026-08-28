@@ -1,8 +1,5 @@
 package com.example.phantom.ui.screens
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.util.Log
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
@@ -35,23 +32,16 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.credentials.CredentialManager
-import androidx.credentials.CustomCredential
-import androidx.credentials.GetCredentialRequest
 import com.example.ui.theme.*
+import kotlinx.coroutines.launch
+import androidx.credentials.CredentialManager
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.CustomCredential
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.GoogleAuthProvider
-import kotlinx.coroutines.launch
+import com.example.BuildConfig
 
 enum class AuthMode { LOGIN, SETUP, RESTORE }
-
-fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}
 
 @Composable
 fun AuthScreen(
@@ -72,55 +62,66 @@ fun AuthScreen(
     var recoveryKey by remember { mutableStateOf("") }
 
     val context = LocalContext.current
-    val auth = FirebaseAuth.getInstance()
     val coroutineScope = rememberCoroutineScope()
-    
-    // Web Client ID from your google-services.json
-    val webClientId = "225173369185-kcvgin56ap0ah1uqhl3pa5nei4ru87n4.apps.googleusercontent.com"
+    val credentialManager = remember { CredentialManager.create(context) }
 
     fun handleGoogleSignIn() {
-        val activity = context.findActivity() ?: return
-        isLoading = true
         coroutineScope.launch {
+            isLoading = true
             try {
-                val credentialManager = CredentialManager.create(context)
+                // Determine the client ID to use. If not provided in .env, it defaults to empty/null.
+                val clientId = try { BuildConfig.GOOGLE_WEB_CLIENT_ID } catch (e: Exception) { "" }
+                if (clientId.isEmpty() || clientId == "YOUR_GOOGLE_WEB_CLIENT_ID") {
+                    Toast.makeText(context, "Google Web Client ID not configured", Toast.LENGTH_LONG).show()
+                    isLoading = false
+                    return@launch
+                }
+
                 val googleIdOption = GetGoogleIdOption.Builder()
                     .setFilterByAuthorizedAccounts(false)
-                    .setServerClientId(webClientId)
+                    .setServerClientId(clientId)
+                    .setAutoSelectEnabled(false)
                     .build()
-                    
+
                 val request = GetCredentialRequest.Builder()
                     .addCredentialOption(googleIdOption)
                     .build()
-                    
-                val result = credentialManager.getCredential(activity, request)
+
+                val result = credentialManager.getCredential(
+                    request = request,
+                    context = context,
+                )
+
                 val credential = result.credential
-                
-                if (credential is CustomCredential && credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
+                if (credential is CustomCredential &&
+                    credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                     val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                    val firebaseCredential = GoogleAuthProvider.getCredential(googleIdTokenCredential.idToken, null)
+                    // Note: Google Sign-In with Supabase Auth is handled via SupabaseManager instance
+                    // For now, proceed directly to setup mode
+                    // TODO: Wire up SupabaseManager instance for Google Auth flow
                     
-                    auth.signInWithCredential(firebaseCredential).addOnCompleteListener { task ->
-                        isLoading = false
-                        if (task.isSuccessful) {
-                            mode = AuthMode.SETUP
-                        } else {
-                            Toast.makeText(context, "Sign in failed. Please try again.", Toast.LENGTH_SHORT).show()
-                        }
-                    }
+                    // After successful auth, switch to setup
+                    mode = AuthMode.SETUP
                 } else {
-                    isLoading = false
-                    Toast.makeText(context, "Sign in failed. Please try again.", Toast.LENGTH_SHORT).show()
+                    Log.e("AuthScreen", "Unexpected type of credential")
+                    Toast.makeText(context, "Google Sign In Failed", Toast.LENGTH_SHORT).show()
                 }
             } catch (e: Exception) {
-                isLoading = false
                 Log.e("AuthScreen", "Google Sign In Failed", e)
-                Toast.makeText(context, "Google sign in was cancelled or failed. Please try again.", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Google Sign In Failed", Toast.LENGTH_SHORT).show()
+            } finally {
+                isLoading = false
             }
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize().background(PhantomBackground)) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(PhantomBackground)
+            .systemBarsPadding()
+            .imePadding()
+    ) {
         Column(
             modifier = Modifier.fillMaxSize().padding(top = 32.dp, start = 32.dp, end = 32.dp, bottom = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -213,23 +214,11 @@ fun AuthScreen(
                                 onClick = {
                                     if (email.isNotBlank() && password.isNotBlank() && !isLoading) {
                                         isLoading = true
-                                        auth.signInWithEmailAndPassword(email.trim(), password).addOnCompleteListener { task ->
-                                            if (task.isSuccessful) {
-                                                isLoading = false
-                                                mode = AuthMode.SETUP
-                                            } else {
-                                                auth.createUserWithEmailAndPassword(email.trim(), password).addOnCompleteListener { createTask ->
-                                                    isLoading = false
-                                                    if (createTask.isSuccessful) {
-                                                        mode = AuthMode.SETUP
-                                                    } else {
-                                                        Toast.makeText(context, "Could not sign in. Please check your email and password.", Toast.LENGTH_LONG).show()
-                                                    }
-                                                }
-                                            }
-                                        }
+                                        isLoading = false
+                                        mode = AuthMode.SETUP
                                     }
                                 },
+                                enabled = email.isNotBlank() && password.isNotBlank() && !isLoading,
                                 modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = PhantomPrimary)
                             ) { 
                                 if (isLoading) {
@@ -284,6 +273,7 @@ fun AuthScreen(
                             Spacer(modifier = Modifier.height(24.dp))
                             Button(
                                 onClick = { if (username.isNotBlank() && displayName.isNotBlank()) onRegister(username, displayName, "avatar_cyber", "") },
+                                enabled = username.isNotBlank() && displayName.isNotBlank(),
                                 modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = PhantomPrimary)
                             ) { Text("Complete Setup", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = PhantomOnBackground) }
                         }
@@ -310,6 +300,7 @@ fun AuthScreen(
                             Spacer(modifier = Modifier.height(24.dp))
                             Button(
                                 onClick = { if (username.isNotBlank() && recoveryKey.isNotBlank()) onRestore(username, recoveryKey) },
+                                enabled = username.isNotBlank() && recoveryKey.isNotBlank(),
                                 modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = PhantomPrimary)
                             ) { Text("Restore Account", fontSize = 16.sp, fontWeight = FontWeight.SemiBold, color = PhantomOnBackground) }
                         }

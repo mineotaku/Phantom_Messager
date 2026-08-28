@@ -13,7 +13,7 @@ import androidx.room.RoomDatabase
         MessageEntity::class,
         PrekeyEntity::class
     ],
-    version = 4,
+    version = 6,
     exportSchema = false
 )
 abstract class PhantomDatabase : RoomDatabase() {
@@ -29,10 +29,28 @@ abstract class PhantomDatabase : RoomDatabase() {
 
         fun getDatabase(context: Context): PhantomDatabase {
             return INSTANCE ?: synchronized(this) {
-                // For MVP: In a real prod app, use a Master Password or Android Keystore
-                // Here we derive a key securely from the OS or prompt the user.
-                val dbPassword = "phantom_secure_local_key_v1" // Mocked secure key for MVP
-                val factory = net.sqlcipher.database.SupportFactory(dbPassword.toByteArray())
+                // Generate or retrieve the encryption key securely
+                val sharedPreferences = androidx.security.crypto.EncryptedSharedPreferences.create(
+                    "phantom_secure_prefs",
+                    androidx.security.crypto.MasterKeys.getOrCreate(androidx.security.crypto.MasterKeys.AES256_GCM_SPEC),
+                    context.applicationContext,
+                    androidx.security.crypto.EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
+                    androidx.security.crypto.EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM
+                )
+
+                var dbPassword = sharedPreferences.getString("db_encryption_key", null)
+                if (dbPassword == null) {
+                    // Generate a new 256-bit key
+                    val secureRandom = java.security.SecureRandom()
+                    val keyBytes = ByteArray(32)
+                    secureRandom.nextBytes(keyBytes)
+                    dbPassword = android.util.Base64.encodeToString(keyBytes, android.util.Base64.NO_WRAP)
+                    
+                    sharedPreferences.edit().putString("db_encryption_key", dbPassword).apply()
+                }
+
+                val finalDbPassword = dbPassword!!
+                val factory = net.sqlcipher.database.SupportFactory(finalDbPassword.toByteArray())
                 
                 val instance = Room.databaseBuilder(
                     context.applicationContext,
@@ -40,7 +58,7 @@ abstract class PhantomDatabase : RoomDatabase() {
                     "phantom_vault.db"
                 )
                 .openHelperFactory(factory)
-                .fallbackToDestructiveMigration()
+                .fallbackToDestructiveMigration(true)
                 .build()
                 
                 INSTANCE = instance

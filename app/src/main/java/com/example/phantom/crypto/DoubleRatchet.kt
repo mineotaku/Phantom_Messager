@@ -92,11 +92,10 @@ object DoubleRatchet {
      */
     fun ratchetEncrypt(state: SessionState, plaintext: String): Pair<SessionState, EncryptedRatchetMessage> {
         var currentState = state
-        if (currentState.sendingChainKeyHex == null) {
-            throw IllegalStateException("DoubleRatchet Error: Sending chain key is null!")
-        }
+        val sendingChainKeyHex = currentState.sendingChainKeyHex
+            ?: throw IllegalStateException("DoubleRatchet Error: Sending chain key is null!")
 
-        val currentSendingChainKey = CryptoUtils.fromHex(currentState.sendingChainKeyHex!!)
+        val currentSendingChainKey = CryptoUtils.fromHex(sendingChainKeyHex)
 
         // Derive Message Key & Next Chain Key via HKDF
         val messageKeyBytes = CryptoUtils.hkdfExtractAndExpand(

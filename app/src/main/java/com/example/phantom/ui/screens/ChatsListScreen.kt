@@ -99,8 +99,7 @@ fun ChatsListScreen(
                     ) 
                 },
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(44.dp),
+                    .fillMaxWidth(),
                 shape = RoundedCornerShape(22.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color.Transparent,

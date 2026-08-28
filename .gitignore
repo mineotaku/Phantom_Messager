@@ -1,18 +1,50 @@
+# ── Build Outputs ──
 *.iml
-.gradle
-.kotlin
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
+.gradle/
+.kotlin/
+/build/
+app/build/
+/captures/
+
+# ── IDE ──
+.idea/
+*.iml
+
+# ── Local Configuration ──
 local.properties
+
+# ── Secrets & Credentials ──
 .env
 debug.keystore
+*.jks
+*.keystore
+
+# ── Native Build ──
+.externalNativeBuild/
+.cxx/
+
+# ── OS Artifacts ──
+.DS_Store
+Thumbs.db
+
+# ── Python Artifacts ──
+__pycache__/
+*.pyc
+*.pyo
+
+# ── Database Dumps ──
+*.sqlite
+
+# ── Development Scratch ──
+archive/
+files/
+docs/
+metadata.json
+
+# ── Node.js (prevent accidental commits) ──
+node_modules/
+package-lock.json
+
+# ── Heap / Profiling ──
+*.hprof
+*.log

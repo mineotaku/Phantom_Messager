@@ -72,8 +72,11 @@ interface MessageDao {
     @Query("SELECT * FROM messages WHERE conversationUserId = :conversationUserId ORDER BY timestamp ASC")
     fun getMessagesForConversation(conversationUserId: String): Flow<List<MessageEntity>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertMessage(message: MessageEntity)
+
+    @Query("SELECT EXISTS(SELECT 1 FROM messages WHERE messageId = :messageId)")
+    suspend fun messageExists(messageId: String): Boolean
 
     @Query("UPDATE messages SET isDelivered = 1 WHERE messageId = :messageId")
     suspend fun markDelivered(messageId: String)

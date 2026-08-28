@@ -1,32 +1,36 @@
 package com.example.phantom.ui
 
-import android.app.Application
 import android.util.Log
-import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.phantom.data.db.FriendshipEntity
 import com.example.phantom.data.db.MessageEntity
-import com.example.phantom.data.db.PhantomDatabase
 import com.example.phantom.data.db.SessionEntity
-import com.example.phantom.data.db.UserEntity
 import com.example.phantom.data.network.ProfilePayload
+import com.example.phantom.data.network.SupabaseManager
 import com.example.phantom.data.repository.PhantomRepository
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
-import okhttp3.RequestBody.Companion.toRequestBody
+
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-class PhantomViewModel(application: Application) : AndroidViewModel(application) {
+import dagger.hilt.android.lifecycle.HiltViewModel
+import javax.inject.Inject
 
-    private val repository = PhantomRepository(PhantomDatabase.getDatabase(application))
+@OptIn(ExperimentalCoroutinesApi::class)
+@HiltViewModel
+class PhantomViewModel @Inject constructor(
+    private val repository: PhantomRepository,
+    private val supabaseManager: SupabaseManager
+) : ViewModel() {
 
     val currentUser: StateFlow<UserEntity?> = repository.currentUserFlow.stateIn(
         scope = viewModelScope,
@@ -89,9 +93,31 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
             repository.processFriendAcceptedEvents()
         }
 
-        // Listen for real-time incoming encrypted messages via WebSocket
+        // Listen for real-time incoming encrypted messages via Supabase Realtime
+        // with auto-restart on failure
         viewModelScope.launch {
-            repository.pollAndDecryptIncomingMessages()
+            while (true) {
+                try {
+                    repository.pollAndDecryptIncomingMessages()
+                } catch (e: Exception) {
+                    Log.e("PhantomViewModel", "Message observation failed, restarting in 3s", e)
+                }
+                delay(3000) // Wait before restarting observation
+            }
+        }
+
+        // Periodic polling fallback — ensures messages arrive even if Realtime is down
+        viewModelScope.launch {
+            // Initial delay to let registration/realtime setup finish
+            delay(5000)
+            while (true) {
+                try {
+                    repository.pollForNewMessages()
+                } catch (e: Exception) {
+                    Log.w("PhantomViewModel", "Polling failed", e)
+                }
+                delay(5000) // Poll every 5 seconds
+            }
         }
     }
 
@@ -198,14 +224,14 @@ class PhantomViewModel(application: Application) : AndroidViewModel(application)
                 inputStream?.close()
 
                 if (bytes != null) {
-                    val mediaTypeParsed = (mimeType ?: "application/octet-stream").toMediaTypeOrNull()
-                    val requestFile = bytes.toRequestBody(mediaTypeParsed)
-                    val body = okhttp3.MultipartBody.Part.createFormData("file", "upload_${System.currentTimeMillis()}", requestFile)
-
-                    val response = com.example.phantom.data.network.RetrofitClient.api.uploadMedia(body)
-                    val fullUrl = "https://phantom-relay-jvm2.onrender.com" + response.url
+                    val fullUrl = supabaseManager.uploadMedia(bytes, mimeType ?: "application/octet-stream")
                     
-                    repository.sendMessage(contact.friendUserId, text, fullUrl, mediaType)
+                    if (fullUrl != null) {
+                        repository.sendMessage(contact.friendUserId, text, fullUrl, mediaType)
+                    } else {
+                        // Handle error or send just text
+                        repository.sendMessage(contact.friendUserId, text)
+                    }
 
                     val session = repository.getOrCreateSession(contact.friendUserId)
                     _activeSessionState.value = session

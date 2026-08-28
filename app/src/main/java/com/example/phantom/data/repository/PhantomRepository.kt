@@ -10,12 +10,11 @@ import com.example.phantom.data.db.PhantomDatabase
 import com.example.phantom.data.db.PrekeyEntity
 import com.example.phantom.data.db.SessionEntity
 import com.example.phantom.data.db.UserEntity
-import com.example.phantom.data.network.FriendRequestAcceptPayload
-import com.example.phantom.data.network.FriendRequestPayload
-import com.example.phantom.data.network.RetrofitClient
-import com.example.phantom.data.network.WebSocketManager
+import com.example.phantom.data.network.SupabaseManager
 import com.example.phantom.data.network.ProfilePayload
 import com.example.phantom.data.network.RegisterPayload
+import com.example.phantom.data.network.FriendRequestPayload
+import com.example.phantom.data.network.FriendRequestAcceptPayload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.firstOrNull
@@ -26,8 +25,20 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
-class PhantomRepository(private val db: PhantomDatabase) {
+import javax.inject.Inject
+import javax.inject.Singleton
+
+@Singleton
+class PhantomRepository @Inject constructor(
+    private val db: PhantomDatabase,
+    private val supabaseManager: SupabaseManager
+) {
+
+    private val isObservingMessages = AtomicBoolean(false)
+    private val isObservingRequests = AtomicBoolean(false)
+    private val isObservingAccepts = AtomicBoolean(false)
 
     val currentUserFlow: Flow<UserEntity?> = flow {
         emitAll(db.userDao().getCurrentUserFlow())
@@ -107,8 +118,6 @@ class PhantomRepository(private val db: PhantomDatabase) {
         // Register on server with retry
         registerOnServer(userEntity, opkPublicHexes)
 
-        WebSocketManager.connect(userId)
-
         userEntity
     }
 
@@ -142,7 +151,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
         var lastError: Exception? = null
         for (attempt in 1..3) {
             try {
-                RetrofitClient.api.registerUser(registerPayload)
+                supabaseManager.registerUser(registerPayload)
                 Log.d("PhantomRepository", "Registered on server (attempt $attempt)")
                 return
             } catch (e: Exception) {
@@ -162,17 +171,15 @@ class PhantomRepository(private val db: PhantomDatabase) {
      */
     suspend fun ensureRegisteredOnServer() = withContext(Dispatchers.IO) {
         val currentUser = getCurrentUser() ?: return@withContext
-        try {
-            // Check if server knows about us
-            RetrofitClient.api.getProfile(currentUser.userId)
-            Log.d("PhantomRepository", "User already registered on server")
-        } catch (e: Exception) {
+        // Check if server knows about us
+        val profile = supabaseManager.getProfile(currentUser.userId)
+        if (profile == null) {
             // Server doesn't know us — re-register
             Log.w("PhantomRepository", "User not found on server, re-registering...")
             registerOnServer(currentUser)
+        } else {
+            Log.d("PhantomRepository", "User already registered on server")
         }
-        // Ensure WebSocket is connected
-        WebSocketManager.connect(currentUser.userId)
     }
 
     /**
@@ -182,7 +189,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
     suspend fun fetchPendingFriendRequests() = withContext(Dispatchers.IO) {
         val currentUser = getCurrentUser() ?: return@withContext
         try {
-            val pendingRequests = RetrofitClient.api.getFriendRequests(currentUser.userId)
+            val pendingRequests = supabaseManager.getFriendRequests(currentUser.userId)
             for (request in pendingRequests) {
                 val existing = db.friendshipDao().getFriendship(currentUser.userId, request.fromUserId)
                 if (existing == null) {
@@ -206,7 +213,6 @@ class PhantomRepository(private val db: PhantomDatabase) {
     suspend fun switchActiveUser(targetUserId: String) = withContext(Dispatchers.IO) {
         db.userDao().clearActiveUserFlag()
         db.userDao().setActiveUser(targetUserId)
-        WebSocketManager.connect(targetUserId)
     }
 
     fun getFriendshipsFlow(localUserId: String): Flow<List<FriendshipEntity>> = flow {
@@ -218,7 +224,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
     }.flowOn(Dispatchers.IO)
 
     suspend fun searchUsers(query: String): List<ProfilePayload> = withContext(Dispatchers.IO) {
-        RetrofitClient.api.searchProfiles(query)
+        supabaseManager.searchProfiles(query)
     }
 
     /**
@@ -226,7 +232,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
      */
     suspend fun sendFriendRequest(friendUserId: String) = withContext(Dispatchers.IO) {
         val currentUser = getCurrentUser() ?: return@withContext
-        val profile = RetrofitClient.api.getProfile(friendUserId)
+        val profile = supabaseManager.getProfile(friendUserId) ?: return@withContext
             
         val friendEntity = FriendshipEntity(
             localUserId = currentUser.userId,
@@ -240,7 +246,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
 
         // Notify the server so the recipient gets the request
         try {
-            RetrofitClient.api.sendFriendRequest(
+            supabaseManager.sendFriendRequest(
                 FriendRequestPayload(
                     fromUserId = currentUser.userId,
                     toUserId = friendUserId
@@ -261,7 +267,7 @@ class PhantomRepository(private val db: PhantomDatabase) {
 
         // Notify the server so the sender gets updated
         try {
-            RetrofitClient.api.acceptFriendRequest(
+            supabaseManager.acceptFriendRequest(
                 FriendRequestAcceptPayload(
                     userId = currentUser.userId,
                     friendUserId = friendUserId
@@ -288,21 +294,29 @@ class PhantomRepository(private val db: PhantomDatabase) {
      * Creates PENDING_RECEIVED friendship entries in local DB.
      */
     suspend fun processFriendRequestEvents(): Unit = withContext(Dispatchers.IO) {
-        WebSocketManager.friendRequestFlow.collect { event ->
-            val currentUser = getCurrentUser() ?: return@collect
-            val existing = db.friendshipDao().getFriendship(currentUser.userId, event.fromUserId)
-            if (existing == null) {
-                val friendEntity = FriendshipEntity(
-                    localUserId = currentUser.userId,
-                    friendUserId = event.fromUserId,
-                    friendUsername = event.fromUsername ?: "Unknown",
-                    friendDisplayName = event.fromDisplayName ?: event.fromUsername ?: "Unknown",
-                    friendAvatarStyle = event.fromAvatarStyle ?: "",
-                    status = "PENDING_RECEIVED"
-                )
-                db.friendshipDao().insertFriendship(friendEntity)
-                Log.d("PhantomRepository", "Received friend request from ${event.fromUserId}")
+        if (!isObservingRequests.compareAndSet(false, true)) return@withContext
+        try {
+            val currentUser = getCurrentUser() ?: return@withContext
+            supabaseManager.observeFriendRequests(currentUser.userId).collect { event ->
+                val activeUser = getCurrentUser() ?: return@collect
+                val existing = db.friendshipDao().getFriendship(activeUser.userId, event.fromUserId)
+                if (existing == null) {
+                    val friendEntity = FriendshipEntity(
+                        localUserId = activeUser.userId,
+                        friendUserId = event.fromUserId,
+                        friendUsername = event.fromUsername ?: "Unknown",
+                        friendDisplayName = event.fromDisplayName ?: event.fromUsername ?: "Unknown",
+                        friendAvatarStyle = event.fromAvatarStyle ?: "",
+                        status = "PENDING_RECEIVED"
+                    )
+                    db.friendshipDao().insertFriendship(friendEntity)
+                    Log.d("PhantomRepository", "Received friend request from ${event.fromUserId}")
+                }
             }
+        } catch (e: Exception) {
+            Log.e("PhantomRepository", "Error observing friend requests", e)
+        } finally {
+            isObservingRequests.set(false)
         }
     }
 
@@ -311,24 +325,32 @@ class PhantomRepository(private val db: PhantomDatabase) {
      * Updates PENDING_SENT entries to ACCEPTED.
      */
     suspend fun processFriendAcceptedEvents(): Unit = withContext(Dispatchers.IO) {
-        WebSocketManager.friendAcceptedFlow.collect { event ->
-            val currentUser = getCurrentUser() ?: return@collect
-            val existing = db.friendshipDao().getFriendship(currentUser.userId, event.acceptedByUserId)
-            if (existing != null && existing.status == "PENDING_SENT") {
-                db.friendshipDao().updateStatus(currentUser.userId, event.acceptedByUserId, "ACCEPTED")
-                Log.d("PhantomRepository", "Friend request accepted by ${event.acceptedByUserId}")
-            } else if (existing == null) {
-                // Edge case: create an accepted friendship if we didn't have one
-                val friendEntity = FriendshipEntity(
-                    localUserId = currentUser.userId,
-                    friendUserId = event.acceptedByUserId,
-                    friendUsername = event.acceptedByUsername ?: "Unknown",
-                    friendDisplayName = event.acceptedByDisplayName ?: event.acceptedByUsername ?: "Unknown",
-                    friendAvatarStyle = event.acceptedByAvatarStyle ?: "",
-                    status = "ACCEPTED"
-                )
-                db.friendshipDao().insertFriendship(friendEntity)
+        if (!isObservingAccepts.compareAndSet(false, true)) return@withContext
+        try {
+            val currentUser = getCurrentUser() ?: return@withContext
+            supabaseManager.observeFriendAccepted(currentUser.userId).collect { event ->
+                val activeUser = getCurrentUser() ?: return@collect
+                val existing = db.friendshipDao().getFriendship(activeUser.userId, event.userId)
+                if (existing != null && existing.status == "PENDING_SENT") {
+                    db.friendshipDao().updateStatus(activeUser.userId, event.userId, "ACCEPTED")
+                    Log.d("PhantomRepository", "Friend request accepted by ${event.userId}")
+                } else if (existing == null) {
+                    // Edge case: create an accepted friendship if we didn't have one
+                    val friendEntity = FriendshipEntity(
+                        localUserId = activeUser.userId,
+                        friendUserId = event.userId,
+                        friendUsername = event.acceptedByUsername ?: "Unknown",
+                        friendDisplayName = event.acceptedByDisplayName ?: event.acceptedByUsername ?: "Unknown",
+                        friendAvatarStyle = event.acceptedByAvatarStyle ?: "",
+                        status = "ACCEPTED"
+                    )
+                    db.friendshipDao().insertFriendship(friendEntity)
+                }
             }
+        } catch (e: Exception) {
+            Log.e("PhantomRepository", "Error observing friend accepts", e)
+        } finally {
+            isObservingAccepts.set(false)
         }
     }
 
@@ -340,7 +362,8 @@ class PhantomRepository(private val db: PhantomDatabase) {
         val existingSession = db.sessionDao().getSession(currentUser.userId, contactUserId)
         if (existingSession != null) return@withContext existingSession
 
-        val bundleResponse = RetrofitClient.api.getPrekeyBundle(contactUserId)
+        val bundleResponse = supabaseManager.getPrekeyBundle(contactUserId)
+            ?: throw IllegalStateException("Failed to fetch prekey bundle for \$contactUserId")
         val prekeyBundle = com.example.phantom.crypto.X3DH.PrekeyBundle(
             recipientUserId = contactUserId,
             identityKeyHex = bundleResponse.identityPublicKeyHex,
@@ -476,166 +499,264 @@ class PhantomRepository(private val db: PhantomDatabase) {
             senderEphemeralKeyHex = if (isFirstMessage) session.aliceBaseKeyHex else null,
             oneTimePrekeyUsedHex = if (isFirstMessage) session.oneTimePrekeyUsedHex else null
         )
-        WebSocketManager.sendMessage(packet)
+        supabaseManager.sendMessage(packet)
         Log.d("PhantomRepository", "Sent message $msgId to $contactUserId (first=$isFirstMessage, opk=${session.oneTimePrekeyUsedHex != null})")
     }
 
     /**
-     * Polling is now replaced by real-time WebSocket observing.
+     * Polls the server for pending messages, processes them, and deletes them from the server.
+     * This is a reliable fallback for when Supabase Realtime doesn't deliver messages.
+     */
+    suspend fun pollForNewMessages() = withContext(Dispatchers.IO) {
+        val currentUser = getCurrentUser() ?: return@withContext
+        try {
+            val serverMessages = supabaseManager.getMessages(currentUser.userId)
+            if (serverMessages.isEmpty()) return@withContext
+            
+            Log.d("PhantomRepository", "Polling found ${serverMessages.size} messages on server")
+            val processedIds = mutableListOf<String>()
+            
+            for (packet in serverMessages) {
+                // Skip if we already have this message locally
+                if (db.messageDao().messageExists(packet.packetId)) {
+                    Log.d("PhantomRepository", "Message ${packet.packetId} already exists locally, deleting from server")
+                    processedIds.add(packet.packetId)
+                    continue
+                }
+                
+                try {
+                    processMessagePacket(packet, currentUser)
+                    processedIds.add(packet.packetId)
+                    Log.d("PhantomRepository", "Successfully processed message ${packet.packetId}")
+                } catch (e: Exception) {
+                    Log.e("PhantomRepository", "Failed to process message ${packet.packetId}", e)
+                    // Still delete to prevent replay corruption
+                    processedIds.add(packet.packetId)
+                }
+            }
+            
+            // Delete all processed messages from the server
+            if (processedIds.isNotEmpty()) {
+                supabaseManager.deleteMessages(processedIds)
+                Log.d("PhantomRepository", "Deleted ${processedIds.size} processed messages from server")
+            }
+        } catch (e: Exception) {
+            Log.e("PhantomRepository", "Polling failed", e)
+        }
+    }
+
+    /**
+     * Observes real-time messages via Supabase Realtime channels.
+     * Messages received here are also deleted from the server after processing.
+     */
+    suspend fun observeRealtimeMessages(): Unit = withContext(Dispatchers.IO) {
+        if (!isObservingMessages.compareAndSet(false, true)) {
+            Log.d("PhantomRepository", "Already observing realtime messages, skipping")
+            return@withContext
+        }
+        try {
+            val currentUser = getCurrentUser() ?: return@withContext
+            Log.d("PhantomRepository", "Starting realtime message observation for ${currentUser.userId}")
+            
+            supabaseManager.observeMessages(currentUser.userId).collect { packet ->
+                val user = getCurrentUser() ?: return@collect
+                
+                // Skip duplicate messages
+                if (db.messageDao().messageExists(packet.packetId)) {
+                    Log.d("PhantomRepository", "Realtime: Message ${packet.packetId} already exists, deleting from server")
+                    supabaseManager.deleteMessage(packet.packetId)
+                    return@collect
+                }
+                
+                try {
+                    processMessagePacket(packet, user)
+                    // Delete from server after successful processing
+                    supabaseManager.deleteMessage(packet.packetId)
+                    Log.d("PhantomRepository", "Realtime: Processed and deleted message ${packet.packetId}")
+                } catch (e: Exception) {
+                    Log.e("PhantomRepository", "Realtime: Failed to process message ${packet.packetId}", e)
+                    // Delete to prevent re-processing corrupt packets
+                    supabaseManager.deleteMessage(packet.packetId)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("PhantomRepository", "Realtime observation error", e)
+        } finally {
+            isObservingMessages.set(false)
+            Log.d("PhantomRepository", "Realtime message observation ended")
+        }
+    }
+
+    /**
+     * Legacy method name kept for compatibility. Now uses the two-pronged approach:
+     * realtime observation + polling fallback.
      */
     suspend fun pollAndDecryptIncomingMessages(): Unit = withContext(Dispatchers.IO) {
-        // Collect messages from the shared flow
-        WebSocketManager.messageFlow.collect { packet ->
-            val currentUser = getCurrentUser() ?: return@collect
-            if (packet.recipientUserId != currentUser.userId) return@collect
-            
-            val senderUserId = packet.senderUserId
-            var session = db.sessionDao().getSession(currentUser.userId, senderUserId)
+        // First poll for any missed messages
+        pollForNewMessages()
+        // Then start realtime observation
+        observeRealtimeMessages()
+    }
 
-            if (session == null) {
-                // Sender initiated X3DH with me. Reconstruct matching secret!
-                Log.d("PhantomRepository", "No session for $senderUserId — performing X3DH receive handshake")
-                val senderProfile = try { RetrofitClient.api.getProfile(senderUserId) } catch (e: Exception) {
-                    Log.e("PhantomRepository", "Failed to fetch sender profile for $senderUserId", e)
-                    null
-                }
-                if (senderProfile == null) return@collect
-                val myIdentityKeyPair = Pair(
-                    CryptoUtils.parsePrivateKey(CryptoUtils.fromHex(currentUser.identityPrivateKeyHex)),
-                    CryptoUtils.parsePublicKey(CryptoUtils.fromHex(currentUser.identityPublicKeyHex))
-                )
-                val mySignedPrekeyPriv = CryptoUtils.parsePrivateKey(CryptoUtils.fromHex(currentUser.signedPrekeyPrivateHex))
+    private suspend fun processMessagePacket(packet: com.example.phantom.data.network.EncryptedMessagePacket, currentUser: UserEntity) {
+        if (packet.recipientUserId != currentUser.userId) return
 
-                val mySignedPrekeyPub = CryptoUtils.parsePublicKey(CryptoUtils.fromHex(currentUser.signedPrekeyPublicHex))
-                val mySignedPrekeyPair = Pair(mySignedPrekeyPriv, mySignedPrekeyPub)
+        // CRITICAL: Skip messages we already processed to prevent Double Ratchet corruption
+        if (db.messageDao().messageExists(packet.packetId)) {
+            Log.d("PhantomRepository", "Skipping already-processed message ${packet.packetId}")
+            return
+        }
 
-                // Look up the One-Time Prekey private key that Alice consumed
-                var opkPrivateKey: java.security.PrivateKey? = null
-                if (packet.oneTimePrekeyUsedHex != null) {
-                    val opkEntity = db.prekeyDao().getPrekeyByPublicKey(packet.oneTimePrekeyUsedHex)
-                    if (opkEntity != null) {
-                        opkPrivateKey = CryptoUtils.parsePrivateKey(CryptoUtils.fromHex(opkEntity.privateKeyHex))
-                        db.prekeyDao().markUsed(opkEntity.prekeyId)
-                        Log.d("PhantomRepository", "Found matching OPK: ${opkEntity.prekeyId}")
-                    } else {
-                        Log.w("PhantomRepository", "OPK public key not found locally — session secret may mismatch!")
-                    }
+        val senderUserId = packet.senderUserId
+        var session = db.sessionDao().getSession(currentUser.userId, senderUserId)
+
+        if (session == null) {
+            // Sender initiated X3DH with me. Reconstruct matching secret!
+            Log.d("PhantomRepository", "No session for $senderUserId — performing X3DH receive handshake")
+            val senderProfile = try { supabaseManager.getProfile(senderUserId) } catch (e: Exception) {
+                Log.e("PhantomRepository", "Failed to fetch sender profile for $senderUserId", e)
+                null
+            }
+            if (senderProfile == null) return
+            val myIdentityKeyPair = Pair(
+                CryptoUtils.parsePrivateKey(CryptoUtils.fromHex(currentUser.identityPrivateKeyHex)),
+                CryptoUtils.parsePublicKey(CryptoUtils.fromHex(currentUser.identityPublicKeyHex))
+            )
+            val mySignedPrekeyPriv = CryptoUtils.parsePrivateKey(CryptoUtils.fromHex(currentUser.signedPrekeyPrivateHex))
+
+            val mySignedPrekeyPub = CryptoUtils.parsePublicKey(CryptoUtils.fromHex(currentUser.signedPrekeyPublicHex))
+            val mySignedPrekeyPair = Pair(mySignedPrekeyPriv, mySignedPrekeyPub)
+
+            // Look up the One-Time Prekey private key that Alice consumed
+            var opkPrivateKey: java.security.PrivateKey? = null
+            if (packet.oneTimePrekeyUsedHex != null) {
+                val opkEntity = db.prekeyDao().getPrekeyByPublicKey(packet.oneTimePrekeyUsedHex)
+                if (opkEntity != null) {
+                    opkPrivateKey = CryptoUtils.parsePrivateKey(CryptoUtils.fromHex(opkEntity.privateKeyHex))
+                    db.prekeyDao().markUsed(opkEntity.prekeyId)
+                    Log.d("PhantomRepository", "Found matching OPK: ${opkEntity.prekeyId}")
                 } else {
-                    Log.d("PhantomRepository", "No OPK was used in this handshake")
+                    Log.w("PhantomRepository", "OPK public key not found locally — session secret may mismatch!")
                 }
-
-                val masterSecretHex = X3DH.receiveHandshake(
-                    bobIdentityKeyPair = myIdentityKeyPair,
-                    bobSignedPrekeyPrivate = mySignedPrekeyPriv,
-                    bobOneTimePrekeyPrivate = opkPrivateKey,
-                    aliceIdentityKeyHex = senderProfile.identityPublicKeyHex ?: return@collect,
-                    aliceEphemeralKeyHex = packet.senderEphemeralKeyHex ?: return@collect
-                )
-                Log.d("PhantomRepository", "X3DH receive handshake complete for $senderUserId")
-
-                val drState = DoubleRatchet.initializeBobSession(masterSecretHex, mySignedPrekeyPair)
-                session = SessionEntity(
-                    contactUserId = senderUserId,
-                    localUserId = currentUser.userId,
-                    rootKeyHex = drState.rootKeyHex,
-                    localDhPrivateKeyHex = drState.localDhPrivateKeyHex,
-                    localDhPublicKeyHex = drState.localDhPublicKeyHex,
-                    remoteDhPublicKeyHex = drState.remoteDhPublicKeyHex,
-                    sendingChainKeyHex = drState.sendingChainKeyHex,
-                    receivingChainKeyHex = drState.receivingChainKeyHex,
-                    sendSequenceNumber = drState.sendSequenceNumber,
-                    receiveSequenceNumber = drState.receiveSequenceNumber,
-                    previousChainLength = drState.previousChainLength,
-                    sharedMasterSecretHex = masterSecretHex
-                )
-
-                // Auto-create a contact for the sender if we don't have one
-                val existingFriendship = db.friendshipDao().getFriendship(currentUser.userId, senderUserId)
-                if (existingFriendship == null) {
-                    val friendEntity = FriendshipEntity(
-                        localUserId = currentUser.userId,
-                        friendUserId = senderUserId,
-                        friendUsername = senderProfile.username ?: "Unknown",
-                        friendDisplayName = senderProfile.displayName ?: senderProfile.username ?: "Unknown",
-                        friendAvatarStyle = senderProfile.avatarStyle ?: "",
-                        status = "ACCEPTED"
-                    )
-                    db.friendshipDao().insertFriendship(friendEntity)
-                    Log.d("PhantomRepository", "Auto-created contact for incoming message sender: $senderUserId")
-                }
+            } else {
+                Log.d("PhantomRepository", "No OPK was used in this handshake")
             }
 
-            val drState = DoubleRatchet.SessionState(
-                rootKeyHex = session.rootKeyHex,
-                localDhPrivateKeyHex = session.localDhPrivateKeyHex,
-                localDhPublicKeyHex = session.localDhPublicKeyHex,
-                remoteDhPublicKeyHex = session.remoteDhPublicKeyHex,
-                sendingChainKeyHex = session.sendingChainKeyHex,
-                receivingChainKeyHex = session.receivingChainKeyHex,
-                sendSequenceNumber = session.sendSequenceNumber,
-                receiveSequenceNumber = session.receiveSequenceNumber,
-                previousChainLength = session.previousChainLength
+            val masterSecretHex = X3DH.receiveHandshake(
+                bobIdentityKeyPair = myIdentityKeyPair,
+                bobSignedPrekeyPrivate = mySignedPrekeyPriv,
+                bobOneTimePrekeyPrivate = opkPrivateKey,
+                aliceIdentityKeyHex = senderProfile.identityPublicKeyHex ?: return,
+                aliceEphemeralKeyHex = packet.senderEphemeralKeyHex ?: return
+            )
+            Log.d("PhantomRepository", "X3DH receive handshake complete for $senderUserId")
+
+            val drState = DoubleRatchet.initializeBobSession(masterSecretHex, mySignedPrekeyPair)
+            session = SessionEntity(
+                contactUserId = senderUserId,
+                localUserId = currentUser.userId,
+                rootKeyHex = drState.rootKeyHex,
+                localDhPrivateKeyHex = drState.localDhPrivateKeyHex,
+                localDhPublicKeyHex = drState.localDhPublicKeyHex,
+                remoteDhPublicKeyHex = drState.remoteDhPublicKeyHex,
+                sendingChainKeyHex = drState.sendingChainKeyHex,
+                receivingChainKeyHex = drState.receivingChainKeyHex,
+                sendSequenceNumber = drState.sendSequenceNumber,
+                receiveSequenceNumber = drState.receiveSequenceNumber,
+                previousChainLength = drState.previousChainLength,
+                sharedMasterSecretHex = masterSecretHex
             )
 
-            val ratchetMsg = DoubleRatchet.EncryptedRatchetMessage(
-                header = DoubleRatchet.MessageHeader(
-                    dhEphemeralPublicKeyHex = packet.dhEphemeralKeyHex,
-                    previousChainLength = packet.previousChainLength,
-                    messageNumber = packet.messageNumber
-                ),
-                ciphertextHex = packet.ciphertextHex,
-                ivHex = packet.ivHex
+            // Auto-create a contact for the sender if we don't have one
+            val existingFriendship = db.friendshipDao().getFriendship(currentUser.userId, senderUserId)
+            if (existingFriendship == null) {
+                val friendEntity = FriendshipEntity(
+                    localUserId = currentUser.userId,
+                    friendUserId = senderUserId,
+                    friendUsername = senderProfile.username ?: "Unknown",
+                    friendDisplayName = senderProfile.displayName ?: senderProfile.username ?: "Unknown",
+                    friendAvatarStyle = senderProfile.avatarStyle ?: "",
+                    status = "ACCEPTED"
+                )
+                db.friendshipDao().insertFriendship(friendEntity)
+                Log.d("PhantomRepository", "Auto-created contact for incoming message sender: $senderUserId")
+            } else if (existingFriendship.status != "ACCEPTED") {
+                db.friendshipDao().updateStatus(currentUser.userId, senderUserId, "ACCEPTED")
+                Log.d("PhantomRepository", "Updated contact status to ACCEPTED for incoming message sender: $senderUserId")
+            }
+        }
+
+        val drState = DoubleRatchet.SessionState(
+            rootKeyHex = session!!.rootKeyHex,
+            localDhPrivateKeyHex = session.localDhPrivateKeyHex,
+            localDhPublicKeyHex = session.localDhPublicKeyHex,
+            remoteDhPublicKeyHex = session.remoteDhPublicKeyHex,
+            sendingChainKeyHex = session.sendingChainKeyHex,
+            receivingChainKeyHex = session.receivingChainKeyHex,
+            sendSequenceNumber = session.sendSequenceNumber,
+            receiveSequenceNumber = session.receiveSequenceNumber,
+            previousChainLength = session.previousChainLength
+        )
+
+        val ratchetMsg = DoubleRatchet.EncryptedRatchetMessage(
+            header = DoubleRatchet.MessageHeader(
+                dhEphemeralPublicKeyHex = packet.dhEphemeralKeyHex,
+                previousChainLength = packet.previousChainLength,
+                messageNumber = packet.messageNumber
+            ),
+            ciphertextHex = packet.ciphertextHex,
+            ivHex = packet.ivHex
+        )
+
+        try {
+            val (updatedDrState, decryptedPlaintext) = DoubleRatchet.ratchetDecrypt(drState, ratchetMsg)
+
+            val updatedSession = session.copy(
+                rootKeyHex = updatedDrState.rootKeyHex,
+                localDhPrivateKeyHex = updatedDrState.localDhPrivateKeyHex,
+                localDhPublicKeyHex = updatedDrState.localDhPublicKeyHex,
+                remoteDhPublicKeyHex = updatedDrState.remoteDhPublicKeyHex,
+                sendingChainKeyHex = updatedDrState.sendingChainKeyHex,
+                receivingChainKeyHex = updatedDrState.receivingChainKeyHex,
+                sendSequenceNumber = updatedDrState.sendSequenceNumber,
+                receiveSequenceNumber = updatedDrState.receiveSequenceNumber,
+                previousChainLength = updatedDrState.previousChainLength
             )
+            db.sessionDao().saveSession(updatedSession)
+
+            var text = decryptedPlaintext
+            var mediaUrl: String? = null
+            var mediaType: String? = null
 
             try {
-                val (updatedDrState, decryptedPlaintext) = DoubleRatchet.ratchetDecrypt(drState, ratchetMsg)
-
-                val updatedSession = session.copy(
-                    rootKeyHex = updatedDrState.rootKeyHex,
-                    localDhPrivateKeyHex = updatedDrState.localDhPrivateKeyHex,
-                    localDhPublicKeyHex = updatedDrState.localDhPublicKeyHex,
-                    remoteDhPublicKeyHex = updatedDrState.remoteDhPublicKeyHex,
-                    sendingChainKeyHex = updatedDrState.sendingChainKeyHex,
-                    receivingChainKeyHex = updatedDrState.receivingChainKeyHex,
-                    sendSequenceNumber = updatedDrState.sendSequenceNumber,
-                    receiveSequenceNumber = updatedDrState.receiveSequenceNumber,
-                    previousChainLength = updatedDrState.previousChainLength
-                )
-                db.sessionDao().saveSession(updatedSession)
-
-                var text = decryptedPlaintext
-                var mediaUrl: String? = null
-                var mediaType: String? = null
-
-                try {
-                    val json = org.json.JSONObject(decryptedPlaintext)
-                    if (json.has("text")) text = json.getString("text")
-                    if (json.has("mediaUrl")) mediaUrl = json.getString("mediaUrl")
-                    if (json.has("mediaType")) mediaType = json.getString("mediaType")
-                } catch (e: Exception) {
-                    // Backwards compatibility for plain string messages
-                }
-
-                val messageEntity = MessageEntity(
-                    messageId = packet.packetId,
-                    conversationUserId = senderUserId,
-                    senderUserId = senderUserId,
-                    recipientUserId = currentUser.userId,
-                    ciphertextHex = packet.ciphertextHex,
-                    ivHex = packet.ivHex,
-                    plaintext = text,
-                    timestamp = packet.timestamp,
-                    isOutgoing = false,
-                    isDelivered = true,
-                    dhEphemeralKeyHex = packet.dhEphemeralKeyHex,
-                    sequenceNumber = packet.messageNumber,
-                    mediaUrl = mediaUrl,
-                    mediaType = mediaType
-                )
-                db.messageDao().insertMessage(messageEntity)
+                val json = org.json.JSONObject(decryptedPlaintext)
+                if (json.has("text")) text = json.getString("text")
+                if (json.has("mediaUrl")) mediaUrl = json.getString("mediaUrl")
+                if (json.has("mediaType")) mediaType = json.getString("mediaType")
             } catch (e: Exception) {
-                Log.e("PhantomRepository", "Failed to decrypt message ${packet.packetId} from ${packet.senderUserId}", e)
+                // Backwards compatibility for plain string messages
             }
+
+            val messageEntity = MessageEntity(
+                messageId = packet.packetId,
+                conversationUserId = senderUserId,
+                senderUserId = senderUserId,
+                recipientUserId = currentUser.userId,
+                ciphertextHex = packet.ciphertextHex,
+                ivHex = packet.ivHex,
+                plaintext = text,
+                timestamp = packet.timestamp,
+                isOutgoing = false,
+                isDelivered = true,
+                dhEphemeralKeyHex = packet.dhEphemeralKeyHex,
+                sequenceNumber = packet.messageNumber,
+                mediaUrl = mediaUrl,
+                mediaType = mediaType
+            )
+            db.messageDao().insertMessage(messageEntity)
+            Log.i("PhantomE2E", "SUCCESSFULLY_DECRYPTED_MESSAGE: $text")
+        } catch (e: Exception) {
+            Log.e("PhantomRepository", "Failed to decrypt incoming message", e)
         }
     }
 }
