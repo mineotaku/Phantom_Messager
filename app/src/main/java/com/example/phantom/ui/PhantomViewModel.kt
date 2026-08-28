@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.phantom.data.db.FriendshipEntity
 import com.example.phantom.data.db.MessageEntity
 import com.example.phantom.data.db.SessionEntity
+import com.example.phantom.data.db.UserEntity
 import com.example.phantom.data.network.ProfilePayload
 import com.example.phantom.data.network.SupabaseManager
 import com.example.phantom.data.repository.PhantomRepository
