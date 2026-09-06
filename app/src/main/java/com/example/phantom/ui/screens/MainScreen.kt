@@ -22,6 +22,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import android.util.Log
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import androidx.credentials.CredentialManager
+import androidx.credentials.ClearCredentialStateRequest
+import kotlinx.coroutines.launch
 import com.example.phantom.ui.PhantomViewModel
 import com.example.ui.theme.PhantomOnSurfaceVariant
 import com.example.ui.theme.PhantomPrimary
@@ -49,11 +55,18 @@ fun MainScreen(viewModel: PhantomViewModel) {
 
     var currentTab by remember { mutableStateOf<PhantomNavRoute>(PhantomNavRoute.Chats) }
     var isVerifyingKeyForContact by remember { mutableStateOf(false) }
+    
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val credentialManager = remember { CredentialManager.create(context) }
 
     if (currentUser == null) {
         AuthScreen(
             onRegister = { username, displayName, avatar, bio ->
                 viewModel.registerAccount(username, displayName, avatar, bio)
+            },
+            onGoogleSignIn = { idToken, onSetupRequired ->
+                viewModel.signInWithGoogle(idToken, onSetupRequired)
             }
         )
         return
@@ -154,7 +167,17 @@ fun MainScreen(viewModel: PhantomViewModel) {
                 )
                 PhantomNavRoute.Profile -> ProfileScreen(
                     currentUser = currentUser,
-                    serverEvents = serverEvents
+                    serverEvents = serverEvents,
+                    onSignOut = {
+                        coroutineScope.launch {
+                            try {
+                                credentialManager.clearCredentialState(ClearCredentialStateRequest())
+                            } catch (e: Exception) {
+                                Log.e("MainScreen", "Failed to clear credentials", e)
+                            }
+                            viewModel.signOut()
+                        }
+                    }
                 )
             }
         }

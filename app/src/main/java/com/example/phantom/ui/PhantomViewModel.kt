@@ -79,31 +79,42 @@ class PhantomViewModel @Inject constructor(
             repository.ensureRegisteredOnServer()
         }
 
-        // Fetch any pending friend requests from server (offline sync)
-        viewModelScope.launch {
-            repository.fetchPendingFriendRequests()
-        }
-
-        // Listen for real-time incoming friend requests via WebSocket
-        viewModelScope.launch {
-            repository.processFriendRequestEvents()
-        }
-
-        // Listen for real-time friend request acceptances via WebSocket
-        viewModelScope.launch {
-            repository.processFriendAcceptedEvents()
-        }
-
-        // Listen for real-time incoming encrypted messages via Supabase Realtime
+        // Listen for real-time incoming encrypted messages and friend requests via Supabase Realtime
         // with auto-restart on failure
         viewModelScope.launch {
+            // Small delay to let registration finish first
+            delay(2000)
             while (true) {
                 try {
-                    repository.pollAndDecryptIncomingMessages()
+                    repository.observeRealtimeMessages()
                 } catch (e: Exception) {
-                    Log.e("PhantomViewModel", "Message observation failed, restarting in 3s", e)
+                    Log.e("PhantomViewModel", "Realtime message observation failed, restarting in 3s", e)
                 }
                 delay(3000) // Wait before restarting observation
+            }
+        }
+
+        viewModelScope.launch {
+            delay(2000)
+            while (true) {
+                try {
+                    repository.processFriendRequestEvents()
+                } catch (e: Exception) {
+                    Log.e("PhantomViewModel", "Friend request observation failed, restarting in 3s", e)
+                }
+                delay(3000)
+            }
+        }
+
+        viewModelScope.launch {
+            delay(2000)
+            while (true) {
+                try {
+                    repository.processFriendAcceptedEvents()
+                } catch (e: Exception) {
+                    Log.e("PhantomViewModel", "Friend accepted observation failed, restarting in 3s", e)
+                }
+                delay(3000)
             }
         }
 
@@ -114,6 +125,7 @@ class PhantomViewModel @Inject constructor(
             while (true) {
                 try {
                     repository.pollForNewMessages()
+                    repository.fetchPendingFriendRequests() // Also poll for friend requests
                 } catch (e: Exception) {
                     Log.w("PhantomViewModel", "Polling failed", e)
                 }
@@ -128,10 +140,34 @@ class PhantomViewModel @Inject constructor(
         }
     }
 
+    fun signInWithGoogle(idToken: String, onSetupRequired: () -> Unit) {
+        viewModelScope.launch {
+            try {
+                val hasLocalUser = repository.signInWithGoogle(idToken)
+                if (!hasLocalUser) {
+                    onSetupRequired()
+                }
+                // If hasLocalUser is true, the repository just set the active user flag.
+                // The Dao will emit the new active user to currentUserFlow, 
+                // which will automatically navigate the UI away from AuthScreen!
+            } catch (e: Exception) {
+                Log.e("PhantomViewModel", "Google Sign In failed in ViewModel", e)
+            }
+        }
+    }
+
     fun switchActiveUser(userId: String) {
         viewModelScope.launch {
             repository.switchActiveUser(userId)
             _activeChatContact.value = null
+        }
+    }
+
+    fun signOut() {
+        viewModelScope.launch {
+            _activeChatContact.value = null
+            _activeSessionState.value = null
+            repository.signOut()
         }
     }
 

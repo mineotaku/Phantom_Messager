@@ -67,7 +67,8 @@ import com.example.ui.theme.PhantomTertiary
 @Composable
 fun ProfileScreen(
     currentUser: UserEntity?,
-    serverEvents: String
+    serverEvents: String,
+    onSignOut: () -> Unit
 ) {
     var showRecoveryPhrase by remember { mutableStateOf(false) }
     var notificationsEnabled by remember { mutableStateOf(true) }
@@ -297,7 +298,8 @@ fun ProfileScreen(
                     icon = Icons.AutoMirrored.Filled.ExitToApp,
                     iconTint = Color(0xFFEF5350),
                     title = "Sign Out",
-                    titleColor = Color(0xFFEF5350)
+                    titleColor = Color(0xFFEF5350),
+                    onClick = onSignOut
                 )
                 SettingsDivider()
                 SettingsItem(

@@ -52,8 +52,9 @@ class E2ESimulationTest {
             .allowMainThreadQueries()
             .build()
 
-        aliceRepo = PhantomRepository(aliceDb, SupabaseManager())
-        bobRepo = PhantomRepository(bobDb, SupabaseManager())
+        val mockPrefs = context.getSharedPreferences("test_prefs", Context.MODE_PRIVATE)
+        aliceRepo = PhantomRepository(aliceDb, SupabaseManager(), mockPrefs)
+        bobRepo = PhantomRepository(bobDb, SupabaseManager(), mockPrefs)
     }
 
     @After

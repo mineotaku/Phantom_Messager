@@ -11,6 +11,7 @@ import com.example.phantom.data.db.PrekeyEntity
 import com.example.phantom.data.db.SessionEntity
 import com.example.phantom.data.db.UserEntity
 import com.example.phantom.data.network.SupabaseManager
+import io.github.jan.supabase.auth.auth
 import com.example.phantom.data.network.ProfilePayload
 import com.example.phantom.data.network.RegisterPayload
 import com.example.phantom.data.network.FriendRequestPayload
@@ -33,7 +34,8 @@ import javax.inject.Singleton
 @Singleton
 class PhantomRepository @Inject constructor(
     private val db: PhantomDatabase,
-    private val supabaseManager: SupabaseManager
+    private val supabaseManager: SupabaseManager,
+    private val sharedPreferences: android.content.SharedPreferences
 ) {
 
     private val isObservingMessages = AtomicBoolean(false)
@@ -49,6 +51,63 @@ class PhantomRepository @Inject constructor(
     }
 
     /**
+     * Signs the current user out by clearing the active user flag.
+     * This causes currentUserFlow to emit null, navigating back to AuthScreen.
+     * Also disconnects realtime to stop receiving messages.
+     */
+    suspend fun signOut() = withContext(Dispatchers.IO) {
+        supabaseManager.disconnectRealtime()
+        db.userDao().clearActiveUserFlag()
+        Log.d("PhantomRepository", "User signed out")
+    }
+
+    /**
+     * Attempts to sign in using a Google ID token.
+     * Returns true if an existing local user was found and activated,
+     * false if this is a new device/account and setup is required.
+     */
+    suspend fun signInWithGoogle(idToken: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            // Authenticate with Supabase Auth
+            supabaseManager.signInWithGoogleIdToken(idToken)
+            Log.d("PhantomRepository", "Google Sign-In successful with Supabase")
+
+            // Get the Supabase Auth UUID that we just signed into via Google
+            val authUserId = supabaseManager.client.auth.currentUserOrNull()?.id ?: return@withContext false
+
+            // Check if we have mapped this Google account to a local user before
+            val mappedUserId = sharedPreferences.getString("google_auth_$authUserId", null)
+
+            if (mappedUserId != null) {
+                // If we found a mapping, check if that user still exists locally
+                val userExists = db.userDao().getUserById(mappedUserId) != null
+                if (userExists) {
+                    db.userDao().setActiveUser(mappedUserId)
+                    Log.d("PhantomRepository", "Reactivated local user: $mappedUserId")
+                    return@withContext true
+                }
+            } else {
+                // Backward compatibility: If no mapping exists, but there is exactly ONE local user,
+                // we can assume this Google account belongs to them and map it now.
+                // However, if there are multiple local users, we cannot guess safely.
+                val localUsers = db.userDao().getAllUsers()
+                if (localUsers.size == 1) {
+                    val singleUserId = localUsers.first().userId
+                    sharedPreferences.edit().putString("google_auth_$authUserId", singleUserId).apply()
+                    db.userDao().setActiveUser(singleUserId)
+                    Log.d("PhantomRepository", "Auto-mapped and reactivated local user: $singleUserId")
+                    return@withContext true
+                }
+            }
+
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e("PhantomRepository", "Google Sign-In failed", e)
+            throw e
+        }
+    }
+
+    /**
      * Registers a new local user account and provisions E2EE cryptographic identity.
      */
     suspend fun registerAccount(
@@ -59,6 +118,26 @@ class PhantomRepository @Inject constructor(
     ): UserEntity = withContext(Dispatchers.IO) {
         val cleanUsername = username.trim().lowercase().removePrefix("@")
         val userId = "u_$cleanUsername"
+
+        // Check if user already exists locally (they just went through setup again for an existing account)
+        val existingUser = db.userDao().getUserById(userId)
+        if (existingUser != null) {
+            Log.d("PhantomRepository", "User $userId already exists locally. Reactivating.")
+            db.userDao().setActiveUser(userId)
+
+            // Map to current Google Auth session if active
+            try {
+                val authUser = supabaseManager.client.auth.currentUserOrNull()
+                if (authUser != null) {
+                    sharedPreferences.edit().putString("google_auth_${authUser.id}", userId).apply()
+                    Log.d("PhantomRepository", "Mapped existing user $userId to Google auth ${authUser.id}")
+                }
+            } catch (e: IllegalStateException) {
+                Log.d("PhantomRepository", "Skipping Auth mapping (Auth plugin not installed)")
+            }
+            
+            return@withContext existingUser
+        }
 
         // 1. Generate Identity KeyPair
         val identityKeyPair = CryptoUtils.generateKeyPair()
@@ -117,6 +196,17 @@ class PhantomRepository @Inject constructor(
 
         // Register on server with retry
         registerOnServer(userEntity, opkPublicHexes)
+
+        // If the user signed in with Google prior to completing setup, save the mapping
+        try {
+            val authUser = supabaseManager.client.auth.currentUserOrNull()
+            if (authUser != null) {
+                sharedPreferences.edit().putString("google_auth_${authUser.id}", userId).apply()
+                Log.d("PhantomRepository", "Mapped new user $userId to Google auth ${authUser.id}")
+            }
+        } catch (e: IllegalStateException) {
+            Log.d("PhantomRepository", "Skipping Auth mapping (Auth plugin not installed)")
+        }
 
         userEntity
     }
@@ -193,12 +283,13 @@ class PhantomRepository @Inject constructor(
             for (request in pendingRequests) {
                 val existing = db.friendshipDao().getFriendship(currentUser.userId, request.fromUserId)
                 if (existing == null) {
+                    val profile = supabaseManager.getProfile(request.fromUserId)
                     val friendEntity = FriendshipEntity(
                         localUserId = currentUser.userId,
                         friendUserId = request.fromUserId,
-                        friendUsername = request.fromUsername ?: "Unknown",
-                        friendDisplayName = request.fromDisplayName ?: request.fromUsername ?: "Unknown",
-                        friendAvatarStyle = request.fromAvatarStyle ?: "",
+                        friendUsername = profile?.username ?: "Unknown",
+                        friendDisplayName = profile?.displayName ?: profile?.username ?: "Unknown",
+                        friendAvatarStyle = profile?.avatarStyle ?: "",
                         status = "PENDING_RECEIVED"
                     )
                     db.friendshipDao().insertFriendship(friendEntity)
@@ -301,12 +392,13 @@ class PhantomRepository @Inject constructor(
                 val activeUser = getCurrentUser() ?: return@collect
                 val existing = db.friendshipDao().getFriendship(activeUser.userId, event.fromUserId)
                 if (existing == null) {
+                    val profile = supabaseManager.getProfile(event.fromUserId)
                     val friendEntity = FriendshipEntity(
                         localUserId = activeUser.userId,
                         friendUserId = event.fromUserId,
-                        friendUsername = event.fromUsername ?: "Unknown",
-                        friendDisplayName = event.fromDisplayName ?: event.fromUsername ?: "Unknown",
-                        friendAvatarStyle = event.fromAvatarStyle ?: "",
+                        friendUsername = profile?.username ?: "Unknown",
+                        friendDisplayName = profile?.displayName ?: profile?.username ?: "Unknown",
+                        friendAvatarStyle = profile?.avatarStyle ?: "",
                         status = "PENDING_RECEIVED"
                     )
                     db.friendshipDao().insertFriendship(friendEntity)
@@ -336,12 +428,13 @@ class PhantomRepository @Inject constructor(
                     Log.d("PhantomRepository", "Friend request accepted by ${event.userId}")
                 } else if (existing == null) {
                     // Edge case: create an accepted friendship if we didn't have one
+                    val profile = supabaseManager.getProfile(event.userId)
                     val friendEntity = FriendshipEntity(
                         localUserId = activeUser.userId,
                         friendUserId = event.userId,
-                        friendUsername = event.acceptedByUsername ?: "Unknown",
-                        friendDisplayName = event.acceptedByDisplayName ?: event.acceptedByUsername ?: "Unknown",
-                        friendAvatarStyle = event.acceptedByAvatarStyle ?: "",
+                        friendUsername = profile?.username ?: "Unknown",
+                        friendDisplayName = profile?.displayName ?: profile?.username ?: "Unknown",
+                        friendAvatarStyle = profile?.avatarStyle ?: "",
                         status = "ACCEPTED"
                     )
                     db.friendshipDao().insertFriendship(friendEntity)
@@ -588,14 +681,11 @@ class PhantomRepository @Inject constructor(
     }
 
     /**
-     * Legacy method name kept for compatibility. Now uses the two-pronged approach:
-     * realtime observation + polling fallback.
+     * Polls for any pending messages on the server.
+     * Realtime observation is managed separately by the ViewModel.
      */
     suspend fun pollAndDecryptIncomingMessages(): Unit = withContext(Dispatchers.IO) {
-        // First poll for any missed messages
         pollForNewMessages()
-        // Then start realtime observation
-        observeRealtimeMessages()
     }
 
     private suspend fun processMessagePacket(packet: com.example.phantom.data.network.EncryptedMessagePacket, currentUser: UserEntity) {

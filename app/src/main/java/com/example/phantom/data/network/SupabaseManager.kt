@@ -65,19 +65,13 @@ data class PrekeyBundleResponse(
 data class FriendRequestPayload(
     @SerialName("from_user_id") val fromUserId: String,
     @SerialName("to_user_id") val toUserId: String,
-    @SerialName("from_username") val fromUsername: String? = null,
-    @SerialName("from_display_name") val fromDisplayName: String? = null,
-    @SerialName("from_avatar_style") val fromAvatarStyle: String? = null,
-    @SerialName("status") val status: String = "pending"
+    @SerialName("status") val status: String = "PENDING"
 )
 
 @Serializable
 data class FriendRequestAcceptPayload(
     @SerialName("user_id") val userId: String,
-    @SerialName("friend_user_id") val friendUserId: String,
-    @SerialName("accepted_by_username") val acceptedByUsername: String? = null,
-    @SerialName("accepted_by_display_name") val acceptedByDisplayName: String? = null,
-    @SerialName("accepted_by_avatar_style") val acceptedByAvatarStyle: String? = null
+    @SerialName("friend_user_id") val friendUserId: String
 )
 
 @Serializable
@@ -121,6 +115,14 @@ class SupabaseManager @Inject constructor() {
             install(Postgrest)
             install(Realtime)
             install(Storage)
+        }
+    }
+
+    suspend fun disconnectRealtime() {
+        try {
+            client.realtime.disconnect()
+        } catch (e: Exception) {
+            Log.w("SupabaseManager", "Failed to disconnect realtime", e)
         }
     }
 
@@ -265,7 +267,8 @@ class SupabaseManager @Inject constructor() {
     }
 
     suspend fun observeMessages(userId: String): Flow<EncryptedMessagePacket> {
-        val channelId = "messages-$userId-${System.currentTimeMillis()}"
+        val channelId = "messages-$userId"
+        
         val channel = client.realtime.channel(channelId)
         val flow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "messages"
@@ -278,6 +281,7 @@ class SupabaseManager @Inject constructor() {
                 null
             }
         }
+        
         try {
             client.realtime.connect()
             channel.subscribe()

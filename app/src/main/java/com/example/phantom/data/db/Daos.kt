@@ -18,6 +18,9 @@ interface UserDao {
     @Query("SELECT * FROM users WHERE userId = :userId LIMIT 1")
     suspend fun getUserById(userId: String): UserEntity?
 
+    @Query("SELECT * FROM users")
+    suspend fun getAllUsers(): List<UserEntity>
+
     @Query("SELECT * FROM users WHERE username = :username LIMIT 1")
     suspend fun getUserByUsername(username: String): UserEntity?
 

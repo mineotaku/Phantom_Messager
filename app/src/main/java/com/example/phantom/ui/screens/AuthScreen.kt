@@ -46,7 +46,8 @@ enum class AuthMode { LOGIN, SETUP, RESTORE }
 @Composable
 fun AuthScreen(
     onRegister: (username: String, displayName: String, avatar: String, bio: String) -> Unit,
-    onRestore: (username: String, recoveryKey: String) -> Unit = { _, _ -> }
+    onRestore: (username: String, recoveryKey: String) -> Unit = { _, _ -> },
+    onGoogleSignIn: (idToken: String, onSetupRequired: () -> Unit) -> Unit = { _, _ -> }
 ) {
     var mode by remember { mutableStateOf(AuthMode.LOGIN) }
     var isLoading by remember { mutableStateOf(false) }
@@ -96,12 +97,12 @@ fun AuthScreen(
                 if (credential is CustomCredential &&
                     credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
                     val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-                    // Note: Google Sign-In with Supabase Auth is handled via SupabaseManager instance
-                    // For now, proceed directly to setup mode
-                    // TODO: Wire up SupabaseManager instance for Google Auth flow
                     
-                    // After successful auth, switch to setup
-                    mode = AuthMode.SETUP
+                    // Pass the token to the ViewModel to handle actual sign in
+                    onGoogleSignIn(googleIdTokenCredential.idToken) {
+                        // If no local user was found, we need to go to setup
+                        mode = AuthMode.SETUP
+                    }
                 } else {
                     Log.e("AuthScreen", "Unexpected type of credential")
                     Toast.makeText(context, "Google Sign In Failed", Toast.LENGTH_SHORT).show()

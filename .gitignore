@@ -26,6 +26,8 @@ debug.keystore
 # ── OS Artifacts ──
 .DS_Store
 Thumbs.db
+~$*
+*.bak
 
 # ── Python Artifacts ──
 __pycache__/

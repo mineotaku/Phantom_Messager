@@ -18,4 +18,9 @@ object AppModule {
         return PhantomDatabase.getDatabase(app)
     }
 
+    @Provides
+    @Singleton
+    fun provideSharedPreferences(app: Application): android.content.SharedPreferences {
+        return app.getSharedPreferences("phantom_auth_prefs", android.content.Context.MODE_PRIVATE)
+    }
 }
